@@ -13,6 +13,19 @@ google-generativeai>=0.3.0
 # Environment variable management
 python-dotenv>=1.0.0
 
+# Screenshot capture for browser analysis
+mss>=9.0.0
+
+# Image processing and base64 encoding
+Pillow>=10.0.0
+
+# Computer vision for drawing borders around elements
+opencv-python>=4.8.0
+numpy>=1.24.0
+
+# Web browser automation (optional)
+webbrowser
+
 # Optional: Web search integration (future feature)
 # requests>=2.31.0
 
