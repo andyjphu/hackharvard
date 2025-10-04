@@ -366,7 +366,67 @@ class AgentCore:
         if "Calculator" not in available_apps:
             available_apps.append("Calculator")
 
+        # Apply blacklist to filter out unwanted apps
+        available_apps = self._apply_app_blacklist(available_apps)
+
         return available_apps  # Return all available apps
+
+    def _apply_app_blacklist(self, apps: List[str]) -> List[str]:
+        """Apply blacklist to filter out unwanted applications"""
+        # Define blacklisted apps that should never be selected
+        # CUSTOMIZE THIS LIST TO YOUR PREFERENCES:
+        blacklisted_apps = {
+            "Siri",  # Voice assistant - not suitable for automation
+            "VoiceOver",  # Accessibility tool - not for automation
+            "VoiceOver Utility",  # Accessibility tool
+            "Accessibility Inspector",  # Developer tool
+            "Console",  # System log viewer - not user-facing
+            "Activity Monitor",  # System monitor - not for user tasks
+            "Disk Utility",  # System utility - not for user tasks
+            # "Terminal",  # REMOVED: You want Terminal available for automation
+            "Script Editor",  # Developer tool
+            "Automator",  # Automation tool - conflicts with our agent
+            "Shortcuts",  # iOS automation - conflicts with our agent
+            "Mission Control",  # System UI - not an app
+            "Launchpad",  # App launcher - not an app
+            "Dock",  # System UI - not an app
+            "Menu Bar",  # System UI - not an app
+            "Control Center",  # System UI - not an app
+            "Notification Center",  # System UI - not an app
+            "Spotlight",  # System search - not an app
+            "Finder",  # File manager - limited automation value
+            "Trash",  # System UI - not an app
+            "Desktop",  # System UI - not an app
+        }
+
+        # Filter out blacklisted apps
+        filtered_apps = []
+        for app in apps:
+            if app not in blacklisted_apps:
+                filtered_apps.append(app)
+            else:
+                print(f"   🚫 Blacklisted app: {app}")
+
+        print(f"   📊 App filtering: {len(apps)} → {len(filtered_apps)} apps")
+        return filtered_apps
+
+    def _normalize_app_name(self, app_name: str) -> str:
+        """Normalize app names to handle common variations"""
+        # Common app name mappings
+        name_mappings = {
+            "iTerm": "iTerm2",
+            "iTerm2": "iTerm2",
+            "Terminal": "Terminal",
+            "Google Chrome": "Google Chrome",
+            "Chrome": "Google Chrome",
+            "Safari": "Safari",
+            "Calculator": "Calculator",
+            "System Settings": "System Settings",
+            "System Preferences": "System Settings",  # Old name
+        }
+
+        # Return mapped name or original if no mapping exists
+        return name_mappings.get(app_name, app_name)
 
     def _ask_gemini_for_app_selection(
         self, goal: str, available_apps: List[str]
@@ -428,18 +488,22 @@ class AgentCore:
             import subprocess
             import time
 
-            print(f"      🎯 Focusing {app_name}...")
+            # Normalize the app name to handle common variations
+            normalized_name = self._normalize_app_name(app_name)
+            print(f"      🎯 Focusing {app_name} (normalized: {normalized_name})...")
 
-            # Try to get the app reference
-            app = atomac.getAppRefByLocalizedName(app_name)
+            # Try to get the app reference with normalized name
+            app = atomac.getAppRefByLocalizedName(normalized_name)
 
             if not app:
-                print(f"      🚀 App not running, attempting to launch {app_name}...")
+                print(
+                    f"      🚀 App not running, attempting to launch {normalized_name}..."
+                )
                 # Try to launch the app
                 try:
-                    subprocess.run(["open", "-a", app_name], check=True)
+                    subprocess.run(["open", "-a", normalized_name], check=True)
                     time.sleep(3)  # Wait for app to start
-                    app = atomac.getAppRefByLocalizedName(app_name)
+                    app = atomac.getAppRefByLocalizedName(normalized_name)
                 except subprocess.CalledProcessError:
                     # Try alternative launch methods
                     bundle_id = self._get_bundle_id(app_name)
@@ -458,12 +522,15 @@ class AgentCore:
 
                 # Verify the app is focused
                 frontmost_app = atomac.getFrontmostApp()
-                if frontmost_app and getattr(frontmost_app, "AXTitle", "") == app_name:
-                    print(f"      ✅ {app_name} is now focused")
+                if (
+                    frontmost_app
+                    and getattr(frontmost_app, "AXTitle", "") == normalized_name
+                ):
+                    print(f"      ✅ {normalized_name} is now focused")
                     return True
                 else:
                     print(
-                        f"      ⚠️  {app_name} focus verification failed, trying alternative method"
+                        f"      ⚠️  {normalized_name} focus verification failed, trying alternative method"
                     )
                     # Try using osascript to focus
                     try:
@@ -471,7 +538,7 @@ class AgentCore:
                             [
                                 "osascript",
                                 "-e",
-                                f'tell application "{app_name}" to activate',
+                                f'tell application "{normalized_name}" to activate',
                             ]
                         )
                         time.sleep(1)

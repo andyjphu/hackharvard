@@ -50,8 +50,8 @@ class ReasoningEngine:
                 return False
 
             genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel("gemini-2.0-flash-exp")
-            print("   ✅ Gemini 2.0 Flash configured for intelligent reasoning")
+            self.model = genai.GenerativeModel("gemini-2.5-flash-lite")
+            print("   ✅ Gemini 2.5 Flash-Lite configured for intelligent reasoning")
             return True
         except Exception as e:
             print(f"   ❌ Error setting up Gemini: {e}")
@@ -171,6 +171,12 @@ class ReasoningEngine:
         - Use "type" action for general text input that doesn't need Enter
         - Use "click" action for buttons, links, and interactive elements
         - Keystroke navigation is often more reliable than clicking search buttons
+        
+        TERMINAL APPLICATIONS (iTerm2, Terminal):
+        - Use "keystroke" action with target "all" for terminal commands
+        - Do NOT try to find specific UI elements in terminals
+        - Terminal commands should be sent as system-wide keystrokes
+        - Examples: "echo hello world", "ls", "cd /path", etc.
         
         AVAILABLE ACTIONS:
         - "click": Click on a UI element (button, link, etc.)

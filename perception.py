@@ -52,6 +52,24 @@ class PerceptionEngine:
         self.seen_elements = set()
         self.perception_history = []
 
+    def _normalize_app_name(self, app_name: str) -> str:
+        """Normalize app names to handle common variations"""
+        # Common app name mappings
+        name_mappings = {
+            "iTerm": "iTerm2",
+            "iTerm2": "iTerm2",
+            "Terminal": "Terminal",
+            "Google Chrome": "Google Chrome",
+            "Chrome": "Google Chrome",
+            "Safari": "Safari",
+            "Calculator": "Calculator",
+            "System Settings": "System Settings",
+            "System Preferences": "System Settings",  # Old name
+        }
+
+        # Return mapped name or original if no mapping exists
+        return name_mappings.get(app_name, app_name)
+
     def discover_ui_signals(self, target_app: str = None) -> List[Dict[str, Any]]:
         """Discover all available UI elements and their capabilities"""
         print("   🔍 Scanning UI elements...")
@@ -60,14 +78,19 @@ class PerceptionEngine:
 
         try:
             if target_app:
-                app = atomac.getAppRefByLocalizedName(target_app)
+                # Normalize the app name to handle common variations
+                normalized_app_name = self._normalize_app_name(target_app)
+                print(
+                    f"   🎯 Looking for app: {target_app} (normalized: {normalized_app_name})"
+                )
+                app = atomac.getAppRefByLocalizedName(normalized_app_name)
                 if not app:
-                    print(f"   ❌ App '{target_app}' not found")
+                    print(f"   ❌ App '{normalized_app_name}' not found")
                     print(
-                        f"   🚀 No UI elements found, attempting to launch {target_app}..."
+                        f"   🚀 No UI elements found, attempting to launch {normalized_app_name}..."
                     )
                     # Try to launch the app
-                    app = self._launch_app(target_app)
+                    app = self._launch_app(normalized_app_name)
                     if not app:
                         print(f"   ❌ Could not launch {target_app}")
                         return elements

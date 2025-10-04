@@ -56,12 +56,18 @@ class ActionEngine:
                     text_or_option = action.get("text", action.get("option", ""))
                     print(f"      📝 Text/option: '{text_or_option}'")
                     result = action_method(target, text_or_option)
-                elif action_type in ["scroll", "wait"]:
-                    direction_or_duration = action.get(
-                        "direction", action.get("duration", 1.0)
-                    )
-                    print(f"      📜 Direction/duration: {direction_or_duration}")
-                    result = action_method(target, direction_or_duration)
+                elif action_type in ["keystroke"]:
+                    text = action.get("text", "")
+                    print(f"      ⌨️  Keystroke text: '{text}'")
+                    result = action_method(target, text)
+                elif action_type in ["scroll"]:
+                    direction = action.get("direction", "down")
+                    print(f"      📜 Direction: {direction}")
+                    result = action_method(target, direction)
+                elif action_type in ["wait"]:
+                    duration = action.get("duration", 1.0)
+                    print(f"      ⏱️  Duration: {duration}")
+                    result = action_method(duration)
                 elif action_type in ["key"]:
                     key = action.get("key", "")
                     print(f"      ⌨️  Key: '{key}'")
@@ -400,6 +406,53 @@ class ActionEngine:
         """Execute keystroke navigation - type and press Enter automatically"""
         try:
             import subprocess
+
+            # Handle "all" target for terminal applications
+            if target == "all":
+                print(f"      ⌨️  System-wide keystroke: '{text}' + Enter")
+
+                # Clear any existing text (select all and delete)
+                subprocess.run(
+                    [
+                        "osascript",
+                        "-e",
+                        'tell application "System Events" to keystroke "a" using command down',
+                    ]
+                )
+                time.sleep(0.2)
+                subprocess.run(
+                    [
+                        "osascript",
+                        "-e",
+                        'tell application "System Events" to keystroke (ASCII character 127)',
+                    ]
+                )
+                time.sleep(0.2)
+
+                # Type the text
+                subprocess.run(
+                    [
+                        "osascript",
+                        "-e",
+                        f'tell application "System Events" to keystroke "{text}"',
+                    ]
+                )
+                time.sleep(0.3)
+
+                # Press Enter to execute
+                subprocess.run(
+                    [
+                        "osascript",
+                        "-e",
+                        'tell application "System Events" to key code 36',
+                    ]
+                )
+                time.sleep(0.5)
+
+                return {
+                    "success": True,
+                    "result": f"System-wide keystroke: '{text}' + Enter",
+                }
 
             # Find and focus the target element
             element = self._find_element(target)
