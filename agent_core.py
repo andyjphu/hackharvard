@@ -61,6 +61,136 @@ class AgentCore:
             # Get UI signals
             ui_signals = self.perception.discover_ui_signals(target_app)
 
+            # If no UI signals found and we have a target app, try to launch it
+            if len(ui_signals) == 0 and target_app:
+                print(
+                    f"   🚀 No UI elements found, attempting to launch {target_app}..."
+                )
+                launch_result = self.action._execute_launch_app(target_app)
+                if launch_result.get("success", False):
+                    print(f"   ✅ {launch_result.get('result', 'App launched')}")
+                    # Wait longer for Chrome to fully load its UI elements
+                    wait_time = 5 if target_app in ["Google Chrome", "Safari"] else 2
+                    print(
+                        f"   ⏳ Waiting {wait_time}s for {target_app} to fully load..."
+                    )
+                    time.sleep(wait_time)
+                    ui_signals = self.perception.discover_ui_signals(target_app)
+                    print(f"   📊 Found {len(ui_signals)} elements after launch")
+
+                    # If still no elements for Chrome, try to navigate to a page
+                    if len(ui_signals) == 0 and target_app == "Google Chrome":
+                        print(
+                            "   🌐 Chrome needs web content - navigating to Google..."
+                        )
+                        try:
+                            import subprocess
+                            import urllib.parse
+
+                            # Extract search query from the goal using generalized logic
+                            goal_lower = self.state.goal.lower().strip()
+
+                            # Remove common prefixes and suffixes that don't contribute to search
+                            prefixes_to_remove = [
+                                "search for",
+                                "search",
+                                "look for",
+                                "find",
+                                "google",
+                                "browse for",
+                                "look up",
+                                "find information about",
+                                "search information about",
+                            ]
+
+                            suffixes_to_remove = [
+                                "on google",
+                                "on the web",
+                                "online",
+                                "on the internet",
+                                "for me",
+                                "please",
+                                "thanks",
+                                "thank you",
+                                "on chrome",
+                                "in chrome",
+                            ]
+
+                            # Clean up the goal by removing prefixes and suffixes
+                            cleaned_goal = goal_lower
+                            for prefix in prefixes_to_remove:
+                                if cleaned_goal.startswith(prefix):
+                                    cleaned_goal = cleaned_goal[len(prefix) :].strip()
+                                    break
+
+                            for suffix in suffixes_to_remove:
+                                if cleaned_goal.endswith(suffix):
+                                    cleaned_goal = cleaned_goal[: -len(suffix)].strip()
+                                    break
+
+                            # Handle special cases and clean up further
+                            if not cleaned_goal or cleaned_goal in [
+                                "",
+                                "the",
+                                "a",
+                                "an",
+                            ]:
+                                search_query = "general search"
+                            else:
+                                # Remove common stop words that don't add search value
+                                stop_words = {
+                                    "the",
+                                    "a",
+                                    "an",
+                                    "and",
+                                    "or",
+                                    "but",
+                                    "in",
+                                    "on",
+                                    "at",
+                                    "to",
+                                    "for",
+                                    "of",
+                                    "with",
+                                    "by",
+                                }
+                                words = cleaned_goal.split()
+                                filtered_words = [
+                                    word for word in words if word not in stop_words
+                                ]
+
+                                if not filtered_words:
+                                    search_query = "general search"
+                                else:
+                                    search_query = " ".join(filtered_words)
+
+                                    # Handle specific patterns
+                                    if "youtube" in search_query:
+                                        search_query = "youtube"
+                                    elif "weather" in search_query:
+                                        search_query = "weather"
+                                    elif "news" in search_query:
+                                        search_query = "news"
+
+                            # URL encode the search query
+                            encoded_query = urllib.parse.quote_plus(search_query)
+                            search_url = (
+                                f"https://www.google.com/search?q={encoded_query}"
+                            )
+
+                            print(f"   🔍 Searching for: {search_query}")
+
+                            # Use Chrome's command line to open a new tab with Google search
+                            subprocess.run(["open", "-a", "Google Chrome", search_url])
+                            time.sleep(3)  # Wait for page to load
+
+                            ui_signals = self.perception.discover_ui_signals(target_app)
+                            print(
+                                f"   📊 Found {len(ui_signals)} elements after navigation"
+                            )
+                        except Exception as e:
+                            print(f"   ⚠️  Error navigating Chrome: {e}")
+
             # Get system state
             system_state = self.perception.get_system_state()
 
@@ -168,9 +298,13 @@ class AgentCore:
         self, goal: str, target_app: str = None, max_iterations: int = None
     ):
         """Run the complete perceive-reason-act loop autonomously"""
+        # Intelligently choose target app if not specified
+        if not target_app:
+            target_app = self._choose_target_app(goal)
+
         print(f"🤖 AUTONOMOUS AGENT STARTING")
         print(f"Goal: {goal}")
-        print(f"Target App: {target_app or 'All Apps'}")
+        print(f"Target App: {target_app}")
         print("=" * 60)
 
         iterations = 0
@@ -233,6 +367,217 @@ class AgentCore:
             "success": self.state.error_count < self.max_errors,
         }
 
+    def _choose_target_app(self, goal: str) -> str:
+        """Intelligently choose target app based on goal"""
+        goal_lower = goal.lower()
+
+        # System settings related goals
+        if any(
+            keyword in goal_lower
+            for keyword in [
+                "battery",
+                "power",
+                "energy",
+                "low power",
+                "brightness",
+                "display",
+                "security",
+                "privacy",
+                "firewall",
+                "filevault",
+                "touch id",
+                "biometric",
+                "accessibility",
+                "voiceover",
+                "zoom",
+                "high contrast",
+                "voice control",
+                "settings",
+                "preferences",
+                "configure",
+                "setup",
+                "enable",
+                "disable",
+            ]
+        ):
+            return "System Settings"
+
+        # Calculator related goals
+        if any(
+            keyword in goal_lower
+            for keyword in [
+                "calculate",
+                "math",
+                "add",
+                "subtract",
+                "multiply",
+                "divide",
+                "plus",
+                "minus",
+                "times",
+                "equals",
+                "sum",
+                "total",
+                "result",
+            ]
+        ):
+            return "Calculator"
+
+        # Web browser related goals
+        if any(
+            keyword in goal_lower
+            for keyword in [
+                "search",
+                "google",
+                "browse",
+                "web",
+                "internet",
+                "website",
+                "url",
+                "chrome",
+                "safari",
+                "firefox",
+                "browser",
+                "look up",
+                "find information",
+            ]
+        ):
+            return "Google Chrome"  # Default to Chrome, but could be Safari
+
+        # Text editor related goals
+        if any(
+            keyword in goal_lower
+            for keyword in [
+                "write",
+                "edit",
+                "text",
+                "document",
+                "note",
+                "memo",
+                "draft",
+                "cursor",
+                "vscode",
+                "sublime",
+                "atom",
+                "editor",
+            ]
+        ):
+            return "Cursor"  # Default to Cursor, but could be VS Code
+
+        # Mail related goals
+        if any(
+            keyword in goal_lower
+            for keyword in [
+                "email",
+                "mail",
+                "send",
+                "compose",
+                "reply",
+                "inbox",
+                "message",
+            ]
+        ):
+            return "Mail"
+
+        # Calendar related goals
+        if any(
+            keyword in goal_lower
+            for keyword in [
+                "calendar",
+                "schedule",
+                "meeting",
+                "appointment",
+                "event",
+                "reminder",
+            ]
+        ):
+            return "Calendar"
+
+        # Default to System Settings for general system tasks
+        return "System Settings"
+
+    def _extract_search_query(self, goal: str) -> str:
+        """Extract search query from natural language goal using generalized logic"""
+        goal_lower = goal.lower().strip()
+
+        # Remove common prefixes and suffixes that don't contribute to search
+        prefixes_to_remove = [
+            "search for",
+            "search",
+            "look for",
+            "find",
+            "google",
+            "browse for",
+            "look up",
+            "find information about",
+            "search information about",
+        ]
+
+        suffixes_to_remove = [
+            "on google",
+            "on the web",
+            "online",
+            "on the internet",
+            "for me",
+            "please",
+            "thanks",
+            "thank you",
+            "on chrome",
+            "in chrome",
+        ]
+
+        # Clean up the goal by removing prefixes and suffixes
+        cleaned_goal = goal_lower
+        for prefix in prefixes_to_remove:
+            if cleaned_goal.startswith(prefix):
+                cleaned_goal = cleaned_goal[len(prefix) :].strip()
+                break
+
+        for suffix in suffixes_to_remove:
+            if cleaned_goal.endswith(suffix):
+                cleaned_goal = cleaned_goal[: -len(suffix)].strip()
+                break
+
+        # Handle special cases and clean up further
+        if not cleaned_goal or cleaned_goal in ["", "the", "a", "an"]:
+            return "general search"
+
+        # Remove common stop words that don't add search value
+        stop_words = {
+            "the",
+            "a",
+            "an",
+            "and",
+            "or",
+            "but",
+            "in",
+            "on",
+            "at",
+            "to",
+            "for",
+            "of",
+            "with",
+            "by",
+        }
+        words = cleaned_goal.split()
+        filtered_words = [word for word in words if word not in stop_words]
+
+        if not filtered_words:
+            return "general search"
+
+        # Join the filtered words
+        search_query = " ".join(filtered_words)
+
+        # Handle specific patterns
+        if "youtube" in search_query:
+            return "youtube"
+        elif "weather" in search_query:
+            return "weather"
+        elif "news" in search_query:
+            return "news"
+
+        return search_query
+
     def _is_goal_achieved(
         self,
         goal: str,
@@ -265,26 +610,104 @@ class AgentCore:
 
 
 def main():
-    """Main function for testing the agent"""
+    """Main function for running the agent with CLI arguments"""
     import sys
+    import argparse
 
+    # Set up argument parser
+    parser = argparse.ArgumentParser(
+        description="Autonomous Agent System - Perceive, Reason, and Act",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python agent_core.py "save battery life"
+  python agent_core.py "make my computer more secure"
+  python agent_core.py "help me calculate 15 + 27"
+  python agent_core.py "search for the meaning of life on Google"
+  python agent_core.py "write a note about my meeting"
+  python agent_core.py "schedule a meeting for tomorrow"
+  python agent_core.py "optimize battery life" "System Settings" --max-iterations 10
+        """,
+    )
+
+    parser.add_argument(
+        "goal",
+        help="The goal for the agent to achieve in natural language (e.g., 'save battery life', 'make my computer secure', 'calculate 15 + 27')",
+    )
+    parser.add_argument(
+        "target_app",
+        nargs="?",
+        default=None,
+        help="Target application to interact with (optional - agent will choose intelligently if not specified)",
+    )
+    parser.add_argument(
+        "--max-iterations",
+        type=int,
+        default=10,
+        help="Maximum number of iterations (default: 10)",
+    )
+    parser.add_argument(
+        "--max-errors",
+        type=int,
+        default=5,
+        help="Maximum number of errors before stopping (default: 5)",
+    )
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
+    parser.add_argument(
+        "--save-results",
+        action="store_true",
+        default=True,
+        help="Save results to JSON file (default: True)",
+    )
+
+    # Parse arguments
+    args = parser.parse_args()
+
+    # Create agent
     agent = AgentCore()
 
-    if len(sys.argv) > 1:
-        goal = sys.argv[1]
-        target_app = sys.argv[2] if len(sys.argv) > 2 else None
-    else:
-        goal = "optimize battery life"
-        target_app = "System Settings"
+    # Configure agent based on arguments
+    agent.max_iterations = args.max_iterations
+    agent.max_errors = args.max_errors
 
-    # Run autonomous loop
-    result = agent.run_autonomous_loop(goal, target_app)
+    print(f"🤖 AUTONOMOUS AGENT STARTING")
+    print(f"Goal: {args.goal}")
+    print(f"Target App: {args.target_app}")
+    print(f"Max Iterations: {args.max_iterations}")
+    print(f"Max Errors: {args.max_errors}")
+    print("=" * 60)
 
-    # Save results
-    with open("agent_result.json", "w") as f:
-        json.dump(result, f, indent=2, default=str)
+    try:
+        # Run autonomous loop
+        result = agent.run_autonomous_loop(
+            goal=args.goal,
+            target_app=args.target_app,
+            max_iterations=args.max_iterations,
+        )
 
-    print(f"\n💾 Results saved to agent_result.json")
+        # Save results if requested
+        if args.save_results:
+            filename = f"agent_result_{args.goal.replace(' ', '_')}.json"
+            with open(filename, "w") as f:
+                json.dump(result, f, indent=2, default=str)
+            print(f"\n💾 Results saved to {filename}")
+
+        # Print final summary
+        print(f"\n🏁 AGENT FINISHED")
+        print(f"   Goal: {args.goal}")
+        print(f"   Success: {result['success']}")
+        print(f"   Iterations: {result['iterations']}")
+        print(f"   Errors: {result['errors']}")
+        print(f"   Final Progress: {result['progress']:.2f}")
+
+    except KeyboardInterrupt:
+        print("\n⏹️  Agent stopped by user")
+    except Exception as e:
+        print(f"\n❌ Agent failed: {e}")
+        if args.verbose:
+            import traceback
+
+            traceback.print_exc()
 
 
 if __name__ == "__main__":

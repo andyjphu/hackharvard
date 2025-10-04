@@ -56,6 +56,10 @@ class ActionEngine:
                 result = self._execute_wait(action.get("duration", 1.0))
             elif action_type == "key":
                 result = self._execute_key(action.get("key", ""))
+            elif action_type == "press_enter":
+                result = self._execute_press_enter(target)
+            elif action_type == "launch_app":
+                result = self._execute_launch_app(action.get("app_name", target))
             else:
                 result = self._execute_unknown_action(action_type, target)
 
@@ -121,7 +125,11 @@ class ActionEngine:
                 return {"success": False, "error": f"Element not found: {target}"}
 
             # Focus the element first
-            element.AXSetFocused(True)
+            try:
+                element.AXSetFocused()
+            except:
+                # If AXSetFocused fails, try alternative focusing
+                element.AXPress()
             time.sleep(0.2)
 
             # Type the text
@@ -129,6 +137,31 @@ class ActionEngine:
             time.sleep(0.5)
 
             return {"success": True, "result": f"Typed '{text}' into {target}"}
+
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def _execute_press_enter(self, target: str) -> Dict[str, Any]:
+        """Press Enter key on an element"""
+        try:
+            element = self._find_element(target)
+            if not element:
+                return {"success": False, "error": f"Element not found: {target}"}
+
+            # Focus the element first
+            try:
+                element.AXSetFocused()
+            except:
+                element.AXPress()
+            time.sleep(0.2)
+
+            # Press Enter key using system events
+            import subprocess
+
+            subprocess.run(
+                ["osascript", "-e", 'tell application "System Events" to key code 36']
+            )
+            return {"success": True, "result": f"Pressed Enter on {target}"}
 
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -218,85 +251,156 @@ class ActionEngine:
         """Handle unknown action types"""
         return {"success": False, "error": f"Unknown action type: {action_type}"}
 
+    def _execute_launch_app(self, app_name: str) -> Dict[str, Any]:
+        """Launch and focus on an application"""
+        try:
+            # Try to get existing app first
+            app = atomac.getAppRefByLocalizedName(app_name)
+
+            if not app:
+                # App not running, try to launch it
+                print(f"      🚀 Launching {app_name}...")
+
+                # Use system command as primary method
+                import subprocess
+
+                try:
+                    subprocess.run(["open", "-a", app_name], check=True)
+                    time.sleep(3)  # Wait for app to start
+                    app = atomac.getAppRefByLocalizedName(app_name)
+                except subprocess.CalledProcessError:
+                    # Try alternative launch methods
+                    bundle_id = self._get_bundle_id(app_name)
+                    if bundle_id:
+                        try:
+                            subprocess.run(["open", "-b", bundle_id], check=True)
+                            time.sleep(3)
+                            app = atomac.getAppRefByLocalizedName(app_name)
+                        except:
+                            pass
+
+            if app:
+                # Focus the app
+                app.activate()
+                time.sleep(2)  # Wait for focus and UI to load
+
+                # Check if we have windows
+                windows = [
+                    w for w in app.windows() if getattr(w, "AXRole", None) == "AXWindow"
+                ]
+                if windows:
+                    return {
+                        "success": True,
+                        "result": f"Launched and focused {app_name}",
+                    }
+                else:
+                    return {
+                        "success": True,
+                        "result": f"Launched {app_name} (no windows yet)",
+                    }
+            else:
+                return {"success": False, "error": f"Could not launch {app_name}"}
+
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def _get_bundle_id(self, app_name: str) -> str:
+        """Get bundle ID for common apps"""
+        bundle_ids = {
+            "Google Chrome": "com.google.Chrome",
+            "Safari": "com.apple.Safari",
+            "Calculator": "com.apple.calculator",
+            "System Settings": "com.apple.systempreferences",
+            "Mail": "com.apple.mail",
+            "Calendar": "com.apple.iCal",
+            "Finder": "com.apple.finder",
+            "Cursor": "com.todesktop.230313mzl4w4u92",
+            "Visual Studio Code": "com.microsoft.VSCode",
+        }
+        return bundle_ids.get(app_name, "")
+
+    def _get_bundle_path(self, app_name: str) -> str:
+        """Get bundle path for common apps"""
+        bundle_paths = {
+            "Google Chrome": "/Applications/Google Chrome.app",
+            "Safari": "/Applications/Safari.app",
+            "Calculator": "/Applications/Calculator.app",
+            "System Settings": "/System/Applications/System Settings.app",
+            "Mail": "/Applications/Mail.app",
+            "Calendar": "/Applications/Calendar.app",
+            "Finder": "/System/Library/CoreServices/Finder.app",
+        }
+        return bundle_paths.get(app_name, "")
+
     def _find_element(self, target: str) -> Optional[Any]:
         """Find an element by ID or other identifier using position-based matching"""
         try:
-            # Try to find in System Settings first (most common target)
-            try:
-                app = atomac.getAppRefByLocalizedName("System Settings")
-                if app:
-                    windows = [
-                        w
-                        for w in app.windows()
-                        if getattr(w, "AXRole", None) == "AXWindow"
-                    ]
+            # Search in common apps where elements might be found
+            common_apps = [
+                "System Settings",
+                "Calculator",
+                "Google Chrome",
+                "Safari",
+                "Cursor",
+                "Visual Studio Code",
+                "Mail",
+                "Calendar",
+                "Finder",
+            ]
 
-                    for window in windows:
-                        # Try to find element by ID first (use findAllR for better compatibility)
-                        elements = window.findAllR(AXIdentifier=target)
-                        if elements:
-                            return elements[0]
+            for app_name in common_apps:
+                try:
+                    app = atomac.getAppRefByLocalizedName(app_name)
+                    if app:
+                        windows = [
+                            w
+                            for w in app.windows()
+                            if getattr(w, "AXRole", None) == "AXWindow"
+                        ]
 
-                        # Try to find by title
-                        elements = window.findAllR(AXTitle=target)
-                        if elements:
-                            return elements[0]
+                        for window in windows:
+                            # Try to find element by ID first (use findAllR for better compatibility)
+                            elements = window.findAllR(AXIdentifier=target)
+                            if elements:
+                                return elements[0]
 
-                        # CRITICAL: Position-based element finding
-                        if "_" in target and target.count("_") >= 2:
-                            try:
-                                # Parse position from ID like "AXButton_533.0_310.0"
-                                parts = target.split("_")
-                                if len(parts) >= 3:
-                                    role = parts[0]  # AXButton
-                                    x = float(parts[1])  # 533.0
-                                    y = float(parts[2])  # 310.0
+                            # Try to find by title
+                            elements = window.findAllR(AXTitle=target)
+                            if elements:
+                                return elements[0]
 
-                                    # Find all elements of this role
-                                    elements = window.findAllR(AXRole=role)
-                                    for elem in elements:
-                                        pos = getattr(elem, "AXPosition", None)
-                                        if (
-                                            pos
-                                            and abs(pos.x - x) < 10
-                                            and abs(pos.y - y) < 10
-                                        ):
-                                            return elem
-                            except:
-                                pass
+                            # CRITICAL: Position-based element finding
+                            if "_" in target and target.count("_") >= 2:
+                                try:
+                                    # Parse position from ID like "AXButton_533.0_310.0"
+                                    parts = target.split("_")
+                                    if len(parts) >= 3:
+                                        role = parts[0]  # AXButton
+                                        x = float(parts[1])  # 533.0
+                                        y = float(parts[2])  # 310.0
 
-                        # Try to find by role and title
-                        if "button" in target.lower():
-                            element = window.findFirst(
-                                AXRole="AXButton", AXTitle=target
-                            )
-                            if element:
-                                return element
-            except Exception:
-                pass
+                                        # Find all elements of this role
+                                        elements = window.findAllR(AXRole=role)
+                                        for elem in elements:
+                                            pos = getattr(elem, "AXPosition", None)
+                                            if (
+                                                pos
+                                                and abs(pos.x - x) < 10
+                                                and abs(pos.y - y) < 10
+                                            ):
+                                                return elem
+                                except:
+                                    pass
 
-            # Try to find in frontmost app
-            try:
-                app = atomac.getFrontmostApp()
-                if app:
-                    windows = [
-                        w
-                        for w in app.windows()
-                        if getattr(w, "AXRole", None) == "AXWindow"
-                    ]
-
-                    for window in windows:
-                        # Try to find element by ID (use findAllR for better compatibility)
-                        elements = window.findAllR(AXIdentifier=target)
-                        if elements:
-                            return elements[0]
-
-                        # Try to find by title
-                        elements = window.findAllR(AXTitle=target)
-                        if elements:
-                            return elements[0]
-            except Exception:
-                pass
+                            # Try to find by role and title
+                            if "button" in target.lower():
+                                element = window.findFirst(
+                                    AXRole="AXButton", AXTitle=target
+                                )
+                                if element:
+                                    return element
+                except Exception:
+                    continue
 
             return None
 

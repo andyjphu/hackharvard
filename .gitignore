@@ -1,2 +1,8 @@
 /.venv
 .env
+__pycache__/
+./__pycache__/
+__pycache__/action.cpython-313.pyc
+__pycache__/agent_core.cpython-313.pyc
+__pycache__/perception.cpython-313.pyc
+__pycache__/reasoning.cpython-313.pyc

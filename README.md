@@ -60,7 +60,29 @@ Get your API key from [Google AI Studio](https://makersuite.google.com/app/apike
 
 ## 🚀 Quick Start
 
-### Basic Usage
+### Easiest Way to Get Started
+
+```bash
+# 1. Setup (first time only)
+python setup.py
+
+# 2. Run the agent
+python main.py
+```
+
+### Alternative: Command Line Interface
+
+```bash
+# Run with specific goal
+python agent_core.py "optimize battery life" "System Settings"
+python agent_core.py "enhance security" "System Settings"
+python agent_core.py "calculate 1+2" "Calculator"
+
+# With options
+python agent_core.py "optimize battery life" --max-iterations 10 --verbose
+```
+
+### Programmatic Usage
 
 ```python
 from agent_core import AgentCore
@@ -86,9 +108,6 @@ python test_agent.py
 
 # Debug Gemini prompts
 python debug_gemini_prompt.py
-
-# Run with specific goal
-python agent_core.py "optimize battery life" "System Settings"
 ```
 
 ## 📚 Documentation
@@ -97,23 +116,46 @@ python agent_core.py "optimize battery life" "System Settings"
 - **[USAGE_GUIDE.md](USAGE_GUIDE.md)** - Comprehensive usage guide with examples
 - **[requirements.txt](requirements.txt)** - Python dependencies
 
-## 🎯 Example Goals
+## 🎯 Example Goals (Natural Language)
 
-The agent can handle various automation tasks:
+The agent understands natural language goals and automatically chooses the right app:
 
-```python
+```bash
 # Battery optimization
-agent.run_autonomous_loop("optimize battery life", "System Settings")
+python agent_core.py "save battery life"
+python agent_core.py "make my computer use less power"
 
 # Security enhancement
-agent.run_autonomous_loop("enhance security", "System Settings")
-
-# Accessibility improvement
-agent.run_autonomous_loop("improve accessibility", "System Settings")
+python agent_core.py "make my computer more secure"
+python agent_core.py "enable security features"
 
 # Calculator automation
-agent.run_autonomous_loop("calculate 1+2", "Calculator")
+python agent_core.py "help me calculate 15 + 27"
+python agent_core.py "what is 100 divided by 4"
+
+# Web search
+python agent_core.py "search for the meaning of life on Google"
+python agent_core.py "look up Python programming tutorials"
+
+# Writing tasks
+python agent_core.py "write a note about my meeting"
+python agent_core.py "create a document about the project"
+
+# Calendar tasks
+python agent_core.py "schedule a meeting for tomorrow"
+python agent_core.py "add an event to my calendar"
 ```
+
+### Intelligent App Selection
+
+The agent automatically chooses the right application based on your goal:
+
+- **"save battery life"** → System Settings
+- **"calculate 15 + 27"** → Calculator
+- **"search on Google"** → Google Chrome
+- **"write a note"** → Cursor/Text Editor
+- **"schedule meeting"** → Calendar
+- **"make computer secure"** → System Settings
 
 ## 🔧 Key Components
 

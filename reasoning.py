@@ -50,8 +50,8 @@ class ReasoningEngine:
                 return False
 
             genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel("gemini-2.0-flash-exp")
-            print("   ✅ Gemini 2.0 Flash configured for intelligent reasoning")
+            self.model = genai.GenerativeModel("gemini-2.5-pro")
+            print("   ✅ Gemini 2.5 Pro configured for intelligent reasoning")
             return True
         except Exception as e:
             print(f"   ❌ Error setting up Gemini: {e}")

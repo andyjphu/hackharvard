@@ -70,18 +70,29 @@ class PerceptionEngine:
                     w for w in app.windows() if getattr(w, "AXRole", None) == "AXWindow"
                 ]
             else:
-                # Get all applications
-                apps = atomac.getAppRefs()
+                # Get all applications by trying common apps
+                common_apps = [
+                    "System Settings",
+                    "Calculator",
+                    "Google Chrome",
+                    "Safari",
+                    "Cursor",
+                    "Visual Studio Code",
+                    "Mail",
+                    "Calendar",
+                    "Finder",
+                ]
                 windows = []
-                for app in apps:
+                for app_name in common_apps:
                     try:
-                        windows.extend(
-                            [
+                        app = atomac.getAppRefByLocalizedName(app_name)
+                        if app:
+                            app_windows = [
                                 w
                                 for w in app.windows()
                                 if getattr(w, "AXRole", None) == "AXWindow"
                             ]
-                        )
+                            windows.extend(app_windows)
                     except:
                         continue
 
@@ -126,7 +137,9 @@ class PerceptionEngine:
         for role in interactive_roles:
             try:
                 found_elements = window.findAllR(AXRole=role) or []
-                for element in found_elements[:10]:  # Limit per role
+                # Allow more buttons for calculator and similar apps
+                limit = 25 if role == "AXButton" else 10
+                for element in found_elements[:limit]:
                     try:
                         signal = self._create_ui_signal(element, role)
                         if signal and signal.id not in self.seen_elements:
