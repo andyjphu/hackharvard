@@ -248,7 +248,7 @@ class AgentCore:
                 print("⚠️  No actions to execute")
                 return {"success": False, "reason": "No actions in plan"}
 
-            # Execute each action in the plan
+            # Execute actions one at a time for continuous observation
             results = []
             for i, action in enumerate(plan):
                 print(f"   Executing action {i+1}/{len(plan)}: {action['action']}")
@@ -268,12 +268,24 @@ class AgentCore:
                     print(f"   ❌ Action failed: {e}")
                     self.state.error_count += 1
                     results.append({"success": False, "error": str(e)})
+                    return {"success": False, "error": str(e), "results": results}
+
+                # After each action, return control to main loop for observation
+                if i < len(plan) - 1:  # Not the last action
+                    print(f"   🔄 Returning to main loop for observation after action {i+1}")
+                    return {
+                        "success": True, 
+                        "partial": True,
+                        "completed_actions": i + 1,
+                        "total_actions": len(plan),
+                        "results": results
+                    }
 
             # Store action results in memory
             self.memory.store_actions(results)
 
             success_count = sum(1 for r in results if r.get("success", False))
-            print(f"✅ Actions completed: {success_count}/{len(results)} successful")
+            print(f"✅ All actions completed: {success_count}/{len(results)} successful")
 
             return {
                 "success": success_count > 0,
@@ -385,6 +397,23 @@ class AgentCore:
                 else:
                     print(f"✅ Action completed successfully")
                     self.state.error_count = 0  # Reset on success
+
+                # 4. Continuous Observation: Observe state after action
+                print(f"🔍 OBSERVING: Checking state after action...")
+                post_action_perception = self.perceive(target_app, goal)
+                if post_action_perception and not post_action_perception.get("error"):
+                    print(f"   📊 Post-action state: {len(post_action_perception.get('ui_signals', []))} elements")
+                    
+                    # Generate new reasoning based on updated state
+                    print(f"🧠 REASONING: Analyzing updated state...")
+                    updated_reasoning = self.reason_with_visual(goal, post_action_perception)
+                    if not updated_reasoning.get("error"):
+                        print(f"   ✅ Updated reasoning: {updated_reasoning.get('confidence', 0):.2f} confidence")
+                        # Update perception data for goal checking
+                        perception_data = post_action_perception
+                        reasoning_result = updated_reasoning
+                    else:
+                        print(f"   ⚠️  Updated reasoning failed: {updated_reasoning.get('error')}")
 
                 # Only check goal achievement if action succeeded
                 goal_achieved = self._is_goal_achieved(
