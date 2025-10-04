@@ -43,25 +43,45 @@ class ActionEngine:
 
         print(f"      🎯 Executing: {action_type} on {target}")
 
+        # VERBOSE: Print full action details
+        print(f"      📋 Full action details: {action}")
+
         try:
-            if action_type == "click":
-                result = self._execute_click(target)
-            elif action_type == "type":
-                result = self._execute_type(target, action.get("text", ""))
-            elif action_type == "select":
-                result = self._execute_select(target, action.get("option", ""))
-            elif action_type == "scroll":
-                result = self._execute_scroll(target, action.get("direction", "down"))
-            elif action_type == "wait":
-                result = self._execute_wait(action.get("duration", 1.0))
-            elif action_type == "key":
-                result = self._execute_key(action.get("key", ""))
-            elif action_type == "press_enter":
-                result = self._execute_press_enter(target)
-            elif action_type == "launch_app":
-                result = self._execute_launch_app(action.get("app_name", target))
+            # Dynamic action execution based on action type
+            action_method = getattr(self, f"_execute_{action_type}", None)
+            if action_method:
+                print(f"      🔧 Using method: _execute_{action_type}")
+                # Call the appropriate method with parameters
+                if action_type in ["type", "select"]:
+                    text_or_option = action.get("text", action.get("option", ""))
+                    print(f"      📝 Text/option: '{text_or_option}'")
+                    result = action_method(target, text_or_option)
+                elif action_type in ["scroll", "wait"]:
+                    direction_or_duration = action.get(
+                        "direction", action.get("duration", 1.0)
+                    )
+                    print(f"      📜 Direction/duration: {direction_or_duration}")
+                    result = action_method(target, direction_or_duration)
+                elif action_type in ["key"]:
+                    key = action.get("key", "")
+                    print(f"      ⌨️  Key: '{key}'")
+                    result = action_method(key)
+                elif action_type in ["press"]:
+                    # Convert press to key action
+                    key = action.get("key", "enter")
+                    print(f"      ⌨️  Converting press to key: '{key}'")
+                    result = self._execute_key(key)
+                elif action_type in ["launch_app"]:
+                    app_name = action.get("app_name", target)
+                    print(f"      🚀 App name: '{app_name}'")
+                    result = action_method(app_name)
+                else:
+                    print(f"      🎯 Simple target: '{target}'")
+                    result = action_method(target)
             else:
-                result = self._execute_unknown_action(action_type, target)
+                print(f"      ⚠️  No specific method found, using generic action")
+                # Try to execute as a generic action
+                result = self._execute_generic_action(action_type, target, action)
 
             # Store action result
             action_result = ActionResult(
@@ -117,23 +137,119 @@ class ActionEngine:
             return {"success": False, "error": str(e)}
 
     def _execute_type(self, target: str, text: str) -> Dict[str, Any]:
-        """Execute a type action"""
+        """Execute a type action - focus window and element first, then type"""
         try:
-            # Find the target element
+            import subprocess
+
+            # Find and click the target element to focus it
             element = self._find_element(target)
             if not element:
                 return {"success": False, "error": f"Element not found: {target}"}
 
-            # Focus the element first
+            # CRITICAL: Force focus the application window first
             try:
-                element.AXSetFocused()
-            except:
-                # If AXSetFocused fails, try alternative focusing
-                element.AXPress()
-            time.sleep(0.2)
+                # Find the application that contains this element
+                app = None
+                common_apps = [
+                    "Google Chrome",
+                    "Safari",
+                    "System Settings",
+                    "Calculator",
+                    "Cursor",
+                    "Visual Studio Code",
+                ]
+
+                for app_name in common_apps:
+                    try:
+                        test_app = atomac.getAppRefByLocalizedName(app_name)
+                        if test_app:
+                            # Check if this element belongs to this app
+                            windows = [
+                                w
+                                for w in test_app.windows()
+                                if getattr(w, "AXRole", None) == "AXWindow"
+                            ]
+                            for window in windows:
+                                # Try to find this element in this window
+                                if self._element_in_window(element, window):
+                                    app = test_app
+                                    print(f"      🎯 Found app: {app_name}")
+                                    break
+                            if app:
+                                break
+                    except:
+                        continue
+
+                if app:
+                    print(
+                        f"      🎯 Focusing app: {getattr(app, 'AXTitle', 'Unknown')}"
+                    )
+                    app.activate()  # Focus the application
+                    time.sleep(1.0)  # Wait longer for focus
+
+                    # Double-check that the app is focused
+                    frontmost_app = atomac.getFrontmostApp()
+                    if frontmost_app and getattr(
+                        frontmost_app, "AXTitle", ""
+                    ) != getattr(app, "AXTitle", ""):
+                        print(f"      ⚠️  App focus failed, trying alternative method")
+                        # Try using osascript to focus the app
+                        app_name = getattr(app, "AXTitle", "")
+                        if app_name:
+                            subprocess.run(
+                                [
+                                    "osascript",
+                                    "-e",
+                                    f'tell application "{app_name}" to activate',
+                                ]
+                            )
+                            time.sleep(1.0)
+                else:
+                    print(
+                        f"      ⚠️  Could not find app for element, trying to focus anyway"
+                    )
+                    # Try to focus the element directly
+            except Exception as e:
+                print(f"      ❌ App focus failed: {e}")
+                # Continue anyway - maybe the element click will work
+
+            # Click the element to focus it
+            try:
+                print(f"      🎯 Clicking element to focus it")
+                element.AXPress()  # Click to focus
+                time.sleep(1.0)  # Wait longer for focus
+            except Exception as e:
+                print(f"      ⚠️  Could not click element: {e}")
+                return {"success": False, "error": f"Could not focus element: {e}"}
+
+            # Clear the field (select all and delete)
+            print(f"      🧹 Clearing field")
+            subprocess.run(
+                [
+                    "osascript",
+                    "-e",
+                    'tell application "System Events" to keystroke "a" using command down',
+                ]
+            )
+            time.sleep(0.3)
+            subprocess.run(
+                [
+                    "osascript",
+                    "-e",
+                    'tell application "System Events" to keystroke (ASCII character 127)',
+                ]
+            )
+            time.sleep(0.3)
 
             # Type the text
-            element.AXSetValue(text)
+            print(f"      ⌨️  Typing: '{text}'")
+            subprocess.run(
+                [
+                    "osascript",
+                    "-e",
+                    f'tell application "System Events" to keystroke "{text}"',
+                ]
+            )
             time.sleep(0.5)
 
             return {"success": True, "result": f"Typed '{text}' into {target}"}
@@ -237,13 +353,86 @@ class ActionEngine:
             return {"success": False, "error": str(e)}
 
     def _execute_key(self, key: str) -> Dict[str, Any]:
-        """Execute a keyboard shortcut"""
+        """Execute a keyboard key press"""
         try:
-            # This would use keyboard automation
-            # For now, just simulate
-            print(f"      ⌨️  Executing keyboard shortcut: {key}")
+            import subprocess
+
+            # Map common keys to key codes
+            key_map = {
+                "enter": "36",
+                "return": "36",
+                "space": "49",
+                "tab": "48",
+                "escape": "53",
+                "delete": "51",
+                "backspace": "51",
+            }
+
+            key_code = key_map.get(key.lower(), key)
+            subprocess.run(
+                [
+                    "osascript",
+                    "-e",
+                    f'tell application "System Events" to key code {key_code}',
+                ]
+            )
             time.sleep(0.5)
-            return {"success": True, "result": f"Executed keyboard shortcut: {key}"}
+
+            return {"success": True, "result": f"Pressed {key} key"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def _execute_press(self, target: str) -> Dict[str, Any]:
+        """Execute a press action (for keys like 'enter')"""
+        try:
+            import subprocess
+
+            # Handle key presses
+            if target.lower() in ["enter", "return"]:
+                subprocess.run(
+                    [
+                        "osascript",
+                        "-e",
+                        'tell application "System Events" to key code 36',
+                    ]
+                )
+                time.sleep(0.5)
+                return {"success": True, "result": f"Pressed {target} key"}
+            else:
+                return {"success": False, "error": f"Unknown key: {target}"}
+
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def _execute_generic_action(
+        self, action_type: str, target: str, action: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Execute generic actions dynamically"""
+        try:
+            element = self._find_element(target)
+            if not element:
+                return {"success": False, "error": f"Element not found: {target}"}
+
+            # Try common accessibility actions
+            if hasattr(element, f"AX{action_type.capitalize()}"):
+                method = getattr(element, f"AX{action_type.capitalize()}")
+                method()
+                return {
+                    "success": True,
+                    "result": f"Executed {action_type} on {target}",
+                }
+
+            # Try generic press action
+            elif hasattr(element, "AXPress"):
+                element.AXPress()
+                return {"success": True, "result": f"Pressed {target}"}
+
+            else:
+                return {
+                    "success": False,
+                    "error": f"No suitable method for action: {action_type}",
+                }
+
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -407,6 +596,18 @@ class ActionEngine:
         except Exception as e:
             print(f"      ⚠️  Error finding element {target}: {e}")
             return None
+
+    def _element_in_window(self, element: Any, window: Any) -> bool:
+        """Check if an element belongs to a specific window"""
+        try:
+            # Get all elements in the window and check if our element is among them
+            all_elements = window.findAllR()
+            for elem in all_elements:
+                if elem == element:
+                    return True
+            return False
+        except:
+            return False
 
     def _find_option(self, parent_element: Any, option: str) -> Optional[Any]:
         """Find an option within a parent element (for dropdowns)"""

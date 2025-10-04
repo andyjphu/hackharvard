@@ -81,16 +81,46 @@ class ReasoningEngine:
         # Build comprehensive prompt
         prompt = self._build_reasoning_prompt(goal, perception, knowledge, agent_state)
 
+        # VERBOSE: Print the full prompt
+        print("\n" + "=" * 80)
+        print("📝 FULL PROMPT SENT TO GEMINI:")
+        print("=" * 80)
+        print(prompt)
+        print("=" * 80)
+
         # Use Gemini for reasoning
         if self.model:
             try:
                 response = self.model.generate_content(prompt)
+
+                # VERBOSE: Print the full response
+                print("\n" + "=" * 80)
+                print("🤖 FULL GEMINI RESPONSE:")
+                print("=" * 80)
+                print(response.text)
+                print("=" * 80)
+
                 reasoning_result = self._parse_gemini_response(response.text)
+
+                # VERBOSE: Print parsed result
+                print("\n" + "=" * 80)
+                print("📊 PARSED REASONING RESULT:")
+                print("=" * 80)
+                print(f"Plan: {reasoning_result.get('plan', [])}")
+                print(f"Confidence: {reasoning_result.get('confidence', 0)}")
+                print(f"Reasoning: {reasoning_result.get('reasoning', '')}")
+                print(f"Alternatives: {reasoning_result.get('alternatives', [])}")
+                print(f"Risks: {reasoning_result.get('risks', [])}")
+                print("=" * 80)
+
                 print(
                     f"   ✅ Gemini reasoning complete: {reasoning_result['confidence']:.2f} confidence"
                 )
             except Exception as e:
                 print(f"   ❌ Gemini error: {e}")
+                import traceback
+
+                traceback.print_exc()
                 return {"error": str(e), "plan": [], "confidence": 0.0}
         else:
             print("   ❌ Gemini not available - API key required")
@@ -114,47 +144,45 @@ class ReasoningEngine:
         system_state = perception.get("system_state", {})
 
         return f"""
-        AUTONOMOUS AGENT REASONING TASK
+        You are an autonomous AI agent that can interact with any application or system to achieve goals.
         
         GOAL: {goal}
         
-        CURRENT SITUATION:
-        - UI Elements Available: {len(ui_signals)}
+        CURRENT ENVIRONMENT:
+        - Available UI Elements: {len(ui_signals)}
         - System State: {system_state}
-        - Agent Progress: {agent_state.progress:.2f}
-        - Error Count: {agent_state.error_count}
+        - Progress: {agent_state.progress:.2f}
+        - Errors: {agent_state.error_count}
         
-        AVAILABLE UI ELEMENTS (USE THESE EXACT IDs):
+        AVAILABLE UI ELEMENTS:
         {self._format_ui_elements(ui_signals)}
         
         SYSTEM STATE:
         {self._format_system_state(system_state)}
         
-        KNOWLEDGE BASE:
+        CONTEXT:
         {self._format_knowledge(knowledge)}
         
-        TASK: As an autonomous agent, analyze this situation and create an optimal action plan.
+        Analyze the situation and create a plan to achieve the goal. Use the exact element IDs provided.
+        Consider what actions are needed, which elements to use, potential risks, and alternatives.
         
-        IMPORTANT: You MUST use the exact element IDs provided above. Do not create new IDs.
+        AVAILABLE ACTIONS:
+        - "click": Click on a UI element (button, link, etc.)
+        - "type": Type text into a text field
+        - "key": Press a keyboard key (enter, space, tab, etc.)
+        - "select": Select an option from a dropdown
+        - "scroll": Scroll in a direction (up, down, left, right)
+        - "wait": Wait for a specified duration
         
-        Consider:
-        1. What actions are needed to achieve the goal?
-        2. Which of the available UI elements can be used?
-        3. What are the risks and how to mitigate them?
-        4. What alternatives exist if the primary plan fails?
-        5. How confident are you in this plan?
-        
-        Respond with a JSON structure:
+        Respond with JSON:
         {{
             "plan": [
-                {{"action": "click", "target": "EXACT_ELEMENT_ID_FROM_ABOVE", "reason": "explanation"}},
-                {{"action": "select", "target": "EXACT_ELEMENT_ID_FROM_ABOVE", "reason": "explanation"}}
+                {{"action": "action_type", "target": "element_id", "text": "text_to_type", "key": "key_name", "reason": "why this action"}}
             ],
-            "confidence": 0.85,
-            "reasoning": "Detailed explanation of the plan",
-            "alternatives": ["Alternative approach 1", "Alternative approach 2"],
-            "risks": ["Risk 1: mitigation", "Risk 2: mitigation"],
-            "next_steps": ["Step 1", "Step 2"]
+            "confidence": 0.0-1.0,
+            "reasoning": "explanation of your approach",
+            "alternatives": ["other approaches if needed"],
+            "risks": ["potential issues and mitigations"]
         }}
         """
 
@@ -163,8 +191,34 @@ class ReasoningEngine:
         if not elements:
             return "No UI elements available"
 
+        # Prioritize important elements (text fields, search elements, buttons with meaningful titles)
+        important_elements = []
+        other_elements = []
+
+        for element in elements:
+            element_type = element.get("type", "")
+            title = element.get("title", "").lower()
+            description = element.get("description", "").lower()
+
+            # Prioritize text fields, search elements, and meaningful buttons
+            if (
+                element_type == "AXTextField"
+                or "search" in title
+                or "search" in description
+                or "input" in title
+                or "input" in description
+                or (element_type == "AXButton" and title and title != "button")
+            ):
+                important_elements.append(element)
+            else:
+                other_elements.append(element)
+
+        # Combine important elements first, then others - NO LIMIT!
+        prioritized_elements = important_elements + other_elements
+        elements_to_show = prioritized_elements  # Show ALL elements
+
         formatted = []
-        for element in elements[:10]:  # Limit to first 10 elements
+        for element in elements_to_show:
             formatted.append(
                 f"""
             - ID: {element.get('id', 'Unknown')}

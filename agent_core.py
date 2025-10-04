@@ -69,8 +69,8 @@ class AgentCore:
                 launch_result = self.action._execute_launch_app(target_app)
                 if launch_result.get("success", False):
                     print(f"   ✅ {launch_result.get('result', 'App launched')}")
-                    # Wait longer for Chrome to fully load its UI elements
-                    wait_time = 5 if target_app in ["Google Chrome", "Safari"] else 2
+                    # Wait for app to fully load (dynamic timing based on app type)
+                    wait_time = self._get_app_load_time(target_app)
                     print(
                         f"   ⏳ Waiting {wait_time}s for {target_app} to fully load..."
                     )
@@ -78,118 +78,11 @@ class AgentCore:
                     ui_signals = self.perception.discover_ui_signals(target_app)
                     print(f"   📊 Found {len(ui_signals)} elements after launch")
 
-                    # If still no elements for Chrome, try to navigate to a page
-                    if len(ui_signals) == 0 and target_app == "Google Chrome":
+                    # If still no elements found, let the reasoning engine handle app-specific initialization
+                    if len(ui_signals) == 0:
                         print(
-                            "   🌐 Chrome needs web content - navigating to Google..."
+                            "   🤖 No elements found - letting reasoning engine handle initialization..."
                         )
-                        try:
-                            import subprocess
-                            import urllib.parse
-
-                            # Extract search query from the goal using generalized logic
-                            goal_lower = self.state.goal.lower().strip()
-
-                            # Remove common prefixes and suffixes that don't contribute to search
-                            prefixes_to_remove = [
-                                "search for",
-                                "search",
-                                "look for",
-                                "find",
-                                "google",
-                                "browse for",
-                                "look up",
-                                "find information about",
-                                "search information about",
-                            ]
-
-                            suffixes_to_remove = [
-                                "on google",
-                                "on the web",
-                                "online",
-                                "on the internet",
-                                "for me",
-                                "please",
-                                "thanks",
-                                "thank you",
-                                "on chrome",
-                                "in chrome",
-                            ]
-
-                            # Clean up the goal by removing prefixes and suffixes
-                            cleaned_goal = goal_lower
-                            for prefix in prefixes_to_remove:
-                                if cleaned_goal.startswith(prefix):
-                                    cleaned_goal = cleaned_goal[len(prefix) :].strip()
-                                    break
-
-                            for suffix in suffixes_to_remove:
-                                if cleaned_goal.endswith(suffix):
-                                    cleaned_goal = cleaned_goal[: -len(suffix)].strip()
-                                    break
-
-                            # Handle special cases and clean up further
-                            if not cleaned_goal or cleaned_goal in [
-                                "",
-                                "the",
-                                "a",
-                                "an",
-                            ]:
-                                search_query = "general search"
-                            else:
-                                # Remove common stop words that don't add search value
-                                stop_words = {
-                                    "the",
-                                    "a",
-                                    "an",
-                                    "and",
-                                    "or",
-                                    "but",
-                                    "in",
-                                    "on",
-                                    "at",
-                                    "to",
-                                    "for",
-                                    "of",
-                                    "with",
-                                    "by",
-                                }
-                                words = cleaned_goal.split()
-                                filtered_words = [
-                                    word for word in words if word not in stop_words
-                                ]
-
-                                if not filtered_words:
-                                    search_query = "general search"
-                                else:
-                                    search_query = " ".join(filtered_words)
-
-                                    # Handle specific patterns
-                                    if "youtube" in search_query:
-                                        search_query = "youtube"
-                                    elif "weather" in search_query:
-                                        search_query = "weather"
-                                    elif "news" in search_query:
-                                        search_query = "news"
-
-                            # URL encode the search query
-                            encoded_query = urllib.parse.quote_plus(search_query)
-                            search_url = (
-                                f"https://www.google.com/search?q={encoded_query}"
-                            )
-
-                            print(f"   🔍 Searching for: {search_query}")
-
-                            # Use Chrome's command line to open a new tab with Google search
-                            subprocess.run(["open", "-a", "Google Chrome", search_url])
-                            time.sleep(3)  # Wait for page to load
-
-                            ui_signals = self.perception.discover_ui_signals(target_app)
-                            print(
-                                f"   📊 Found {len(ui_signals)} elements after navigation"
-                            )
-                        except Exception as e:
-                            print(f"   ⚠️  Error navigating Chrome: {e}")
 
             # Get system state
             system_state = self.perception.get_system_state()
@@ -307,53 +200,68 @@ class AgentCore:
         print(f"Target App: {target_app}")
         print("=" * 60)
 
+        # CRITICAL: Focus the target app before starting
+        print(f"\n🎯 FOCUSING TARGET APP: {target_app}")
+        focus_result = self._focus_target_app(target_app)
+        if not focus_result:
+            print(f"❌ Failed to focus {target_app}, continuing anyway...")
+        else:
+            print(f"✅ Successfully focused {target_app}")
+
         iterations = 0
         max_iter = max_iterations or self.max_iterations
 
-        while iterations < max_iter and self.state.error_count < self.max_errors:
-            iterations += 1
-            print(f"\n🔄 ITERATION {iterations}/{max_iter}")
-            print("-" * 40)
+        # Execute the task directly - no iterations needed
+        print(f"\n🎯 EXECUTING TASK DIRECTLY")
+        print("-" * 40)
 
-            try:
-                # 1. Perceive
-                perception_data = self.perceive(target_app)
-                if "error" in perception_data:
-                    print(f"❌ Perception failed: {perception_data['error']}")
-                    break
+        try:
+            # 1. Perceive
+            perception_data = self.perceive(target_app)
+            if "error" in perception_data:
+                print(f"❌ Perception failed: {perception_data['error']}")
+                return
 
-                # 2. Reason
-                reasoning_result = self.reason(goal, perception_data)
-                if "error" in reasoning_result:
-                    print(f"❌ Reasoning failed: {reasoning_result['error']}")
-                    break
+            # 2. Reason
+            reasoning_result = self.reason(goal, perception_data)
+            if "error" in reasoning_result:
+                print(f"❌ Reasoning failed: {reasoning_result['error']}")
+                return
 
-                # 3. Act
-                action_result = self.act(reasoning_result)
-                if not action_result.get("success", False):
-                    print(
-                        f"❌ Actions failed: {action_result.get('error', 'Unknown error')}"
-                    )
-                    self.state.error_count += 1
-                else:
-                    self.state.error_count = 0  # Reset on success
-
-                # Check if goal is achieved
-                if self._is_goal_achieved(goal, perception_data, reasoning_result):
-                    print(f"🎉 GOAL ACHIEVED: {goal}")
-                    break
-
-                # Check confidence
-                if reasoning_result.get("confidence", 0) < 0.3:
-                    print("⚠️  Low confidence, stopping to prevent errors")
-                    break
-
-            except KeyboardInterrupt:
-                print("\n⏹️  Agent stopped by user")
-                break
-            except Exception as e:
-                print(f"❌ Unexpected error: {e}")
+            # 3. Act
+            print(f"🎯 EXECUTING ACTIONS...")
+            action_result = self.act(reasoning_result)
+            if not action_result.get("success", False):
+                print(
+                    f"❌ Actions failed: {action_result.get('error', 'Unknown error')}"
+                )
+                print(f"   Error count: {self.state.error_count + 1}/{self.max_errors}")
                 self.state.error_count += 1
+            else:
+                print(f"✅ Actions completed successfully")
+                self.state.error_count = 0  # Reset on success
+
+            # Check if goal is achieved
+            if self._is_goal_achieved(goal, perception_data, reasoning_result):
+                print(f"🎉 GOAL ACHIEVED: {goal}")
+                return
+
+            # Check confidence (only stop if very low confidence)
+            confidence = reasoning_result.get("confidence", 0)
+            if confidence < 0.1:  # Only stop if confidence is extremely low
+                print(
+                    f"⚠️  Very low confidence ({confidence:.2f}), stopping to prevent errors"
+                )
+                return
+            elif confidence < 0.3:
+                print(f"⚠️  Low confidence ({confidence:.2f}), but continuing...")
+
+        except KeyboardInterrupt:
+            print("\n⏹️  Agent stopped by user")
+            return
+        except Exception as e:
+            print(f"❌ Unexpected error: {e}")
+            self.state.error_count += 1
 
         print(f"\n🏁 AGENT FINISHED")
         print(f"   Iterations: {iterations}")
@@ -368,133 +276,174 @@ class AgentCore:
         }
 
     def _choose_target_app(self, goal: str) -> str:
-        """Intelligently choose target app based on goal"""
-        goal_lower = goal.lower()
+        """Let Gemini intelligently choose target app from available options"""
+        # Get available apps (both open and installed)
+        available_apps = self._get_available_apps()
 
-        # System settings related goals
-        if any(
-            keyword in goal_lower
-            for keyword in [
-                "battery",
-                "power",
-                "energy",
-                "low power",
-                "brightness",
-                "display",
-                "security",
-                "privacy",
-                "firewall",
-                "filevault",
-                "touch id",
-                "biometric",
-                "accessibility",
-                "voiceover",
-                "zoom",
-                "high contrast",
-                "voice control",
-                "settings",
-                "preferences",
-                "configure",
-                "setup",
-                "enable",
-                "disable",
+        if not available_apps:
+            return None
+
+        # Let Gemini choose the best app for the goal
+        return self._ask_gemini_for_app_selection(goal, available_apps)
+
+    def _get_available_apps(self) -> List[str]:
+        """Get list of available applications (open and installed)"""
+        available_apps = []
+
+        try:
+            # Get currently open applications
+            import atomacos as atomac
+
+            try:
+                # Try to get all running apps
+                running_apps = (
+                    atomac.getAppRefs() if hasattr(atomac, "getAppRefs") else []
+                )
+                for app in running_apps:
+                    try:
+                        app_name = getattr(app, "AXTitle", None) or getattr(
+                            app, "AXIdentifier", None
+                        )
+                        if app_name and app_name not in available_apps:
+                            available_apps.append(app_name)
+                    except:
+                        continue
+            except:
+                pass
+
+            # Get installed applications from multiple directories
+            import os
+
+            app_directories = [
+                "/Applications",
+                "/System/Applications",
+                "/Applications/Utilities",
+                "/System/Applications/Utilities",
             ]
-        ):
-            return "System Settings"
+            for applications_dir in app_directories:
+                if os.path.exists(applications_dir):
+                    try:
+                        for item in os.listdir(applications_dir):
+                            if item.endswith(".app"):
+                                app_name = item[:-4]  # Remove .app extension
+                                if app_name not in available_apps:
+                                    available_apps.append(app_name)
+                    except PermissionError:
+                        # Skip directories we can't access
+                        continue
 
-        # Calculator related goals
-        if any(
-            keyword in goal_lower
-            for keyword in [
-                "calculate",
-                "math",
-                "add",
-                "subtract",
-                "multiply",
-                "divide",
-                "plus",
-                "minus",
-                "times",
-                "equals",
-                "sum",
-                "total",
-                "result",
+            # Add common system apps
+            system_apps = [
+                "System Settings",
+                "Calculator",
+                "Safari",
+                "Mail",
+                "Calendar",
+                "Finder",
+                "Terminal",
+                "Activity Monitor",
+                "Disk Utility",
             ]
-        ):
-            return "Calculator"
+            for app in system_apps:
+                if app not in available_apps:
+                    available_apps.append(app)
 
-        # Web browser related goals
-        if any(
-            keyword in goal_lower
-            for keyword in [
-                "search",
-                "google",
-                "browse",
-                "web",
-                "internet",
-                "website",
-                "url",
-                "chrome",
-                "safari",
-                "firefox",
-                "browser",
-                "look up",
-                "find information",
+        except Exception as e:
+            print(f"   ⚠️  Error getting available apps: {e}")
+            # Fallback to common apps
+            available_apps = [
+                "System Settings",
+                "Calculator",
+                "Google Chrome",
+                "Safari",
+                "Mail",
+                "Calendar",
+                "Finder",
+                "Terminal",
             ]
-        ):
-            return "Google Chrome"  # Default to Chrome, but could be Safari
 
-        # Text editor related goals
+        # Ensure Calculator is always included for math tasks
+        if "Calculator" not in available_apps:
+            available_apps.append("Calculator")
+
+        return available_apps  # Return all available apps
+
+    def _ask_gemini_for_app_selection(
+        self, goal: str, available_apps: List[str]
+    ) -> str:
+        """Ask Gemini to choose the best app for the goal"""
+        try:
+            if not self.reasoning.model:
+                # Fallback to first available app if Gemini not available
+                return available_apps[0] if available_apps else None
+
+            # Create prompt for app selection
+            apps_list = "\n".join([f"- {app}" for app in available_apps])
+            prompt = f"""
+            Choose the best application to achieve this goal: "{goal}"
+            
+            Available applications:
+            {apps_list}
+            
+            Consider:
+            - Which app is most suitable for this specific goal?
+            - Is the app likely to be installed and accessible?
+            - Will the app provide the necessary functionality?
+            
+            Respond with just the application name (e.g., "Google Chrome" or "Calculator").
+            """
+
+            # VERBOSE: Show app selection prompt and response
+            print("\n" + "=" * 80)
+            print("📝 APP SELECTION PROMPT SENT TO GEMINI:")
+            print("=" * 80)
+            print(prompt)
+            print("=" * 80)
+
+            response = self.reasoning.model.generate_content(prompt)
+            selected_app = response.text.strip()
+
+            # VERBOSE: Show Gemini's response
+            print("\n" + "=" * 80)
+            print("🤖 GEMINI APP SELECTION RESPONSE:")
+            print("=" * 80)
+            print(f"Selected App: {selected_app}")
+            print("=" * 80)
+
+            # Validate the selection
+            if selected_app in available_apps:
+                return selected_app
+            else:
+                # Fallback to first available app
+                return available_apps[0] if available_apps else None
+
+        except Exception as e:
+            print(f"   ⚠️  Error in app selection: {e}")
+            return available_apps[0] if available_apps else None
+
+    def _get_app_load_time(self, app_name: str) -> int:
+        """Get appropriate load time for different app types"""
+        # Browser apps need more time
         if any(
-            keyword in goal_lower
-            for keyword in [
-                "write",
-                "edit",
-                "text",
-                "document",
-                "note",
-                "memo",
-                "draft",
-                "cursor",
-                "vscode",
-                "sublime",
-                "atom",
-                "editor",
-            ]
+            browser in app_name.lower()
+            for browser in ["chrome", "safari", "firefox", "edge"]
         ):
-            return "Cursor"  # Default to Cursor, but could be VS Code
-
-        # Mail related goals
-        if any(
-            keyword in goal_lower
-            for keyword in [
-                "email",
-                "mail",
-                "send",
-                "compose",
-                "reply",
-                "inbox",
-                "message",
-            ]
+            return 5
+        # Heavy applications
+        elif any(
+            heavy in app_name.lower()
+            for heavy in ["xcode", "photoshop", "final cut", "logic"]
         ):
-            return "Mail"
-
-        # Calendar related goals
-        if any(
-            keyword in goal_lower
-            for keyword in [
-                "calendar",
-                "schedule",
-                "meeting",
-                "appointment",
-                "event",
-                "reminder",
-            ]
+            return 8
+        # Light applications
+        elif any(
+            light in app_name.lower()
+            for light in ["calculator", "notes", "textedit", "terminal"]
         ):
-            return "Calendar"
-
-        # Default to System Settings for general system tasks
-        return "System Settings"
+            return 2
+        # Default for unknown apps
+        else:
+            return 3
 
     def _extract_search_query(self, goal: str) -> str:
         """Extract search query from natural language goal using generalized logic"""
