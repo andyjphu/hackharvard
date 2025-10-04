@@ -1,300 +1,497 @@
-# Intelligent UI Automation System - Usage Guide
+# Agent System Usage Guide
 
-## 🎯 Overview
+## Quick Start
 
-The Intelligent UI Automation System combines UI element discovery, web search capabilities, and Gemini 2.5 Flash-Lite for intelligent automation planning. It presents all available signals to an LLM, allowing it to construct optimal automation plans based on current state, user goals, and external knowledge.
-
-## 🚀 Quick Start
-
-### 1. Set up your Gemini API Key
+### 1. Setup Environment
 
 ```bash
-export GEMINI_API_KEY="your_actual_gemini_api_key_here"
+# Create virtual environment
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
 ```
 
-### 2. Run the system
+### 2. Configure API Key
+
+Create a `.env` file in the project root:
 
 ```bash
-# Basic usage
-python intelligent_automation.py "optimize battery life" "System Settings"
-
-# Test different goals
-python intelligent_automation.py "enhance security" "System Settings"
-python intelligent_automation.py "improve accessibility" "System Settings"
+# .env file
+GEMINI_API_KEY=your_actual_gemini_api_key_here
 ```
 
-## 🏗️ Architecture Components
+**Important**: Replace `your_actual_gemini_api_key_here` with your real Gemini API key from [Google AI Studio](https://makersuite.google.com/app/apikey).
 
-### 1. Signal Discovery Engine
+### 3. Grant Accessibility Permissions
 
-- **Discovers UI elements**: Buttons, toggles, dropdowns, text fields
-- **System state monitoring**: Battery level, power source, memory usage
-- **Context analysis**: Current app, focused elements, constraints
+On macOS, you need to grant accessibility permissions:
 
-### 2. Knowledge Integration Engine
+1. Open **System Settings** → **Privacy & Security** → **Accessibility**
+2. Add your terminal application (Terminal, iTerm2, etc.) to the list
+3. Add your IDE (Cursor, VS Code, etc.) to the list
+4. Ensure both are enabled
 
-- **Web search integration**: Gathers relevant information about the task
-- **Domain knowledge base**: Pre-built knowledge about common automation tasks
-- **Best practices engine**: Provides recommendations based on system behavior
-
-### 3. LLM Decision Engine (Gemini 2.5 Flash-Lite)
-
-- **Goal parsing**: Understands user intent and objectives
-- **Plan generation**: Creates step-by-step automation sequences
-- **Risk assessment**: Evaluates potential issues and side effects
-- **Optimization**: Finds most efficient paths
-
-## 📊 Example Output
-
-```
-🎯 Intelligent Automation System
-Goal: optimize battery life
-Target App: System Settings
-============================================================
-🔍 Discovering UI signals...
-✅ Discovered 34 interactive elements
-🧠 Gathering contextual knowledge...
-🤖 Generating automation plan...
-
-📊 DISCOVERED SIGNALS:
-   Interactive Elements: 34
-   System State: SystemState(battery_level=39, power_source='battery', network_status='connected', time='07:51', memory_usage=76.5, cpu_usage=22.7)
-   Constraints: []
-
-🧠 KNOWLEDGE INTEGRATION:
-   Web Search Results: 4
-   Domain Knowledge: 3
-   Best Practices: 4
-   Recommendations: 0
-
-🤖 LLM GENERATED PLAN:
-   Steps: 5
-   Confidence: 0.9
-   Reasoning: Based on battery level and available power settings
-
-📋 AUTOMATION STEPS:
-   1. click on low_power_mode
-   2. select "Only on Battery" from dropdown
-   3. adjust screen brightness slider
-   4. disable background app refresh
-   5. verify settings applied
-```
-
-## 🔧 Available Commands
-
-### Main System
+### 4. Test the System
 
 ```bash
-# Run intelligent automation
-python intelligent_automation.py "goal" "target_app"
+# Run basic test
+python test_agent.py
 
-# Test system without API key
-python test_intelligent_automation.py
+# Run with specific goal
+python agent_core.py "optimize battery life" "System Settings"
+
+# Debug Gemini prompts
+python debug_gemini_prompt.py
 ```
 
-### Specialized Tools
+## Core Usage
 
-```bash
-# Low Power Mode automation
-python low_power_automation.py --on
-python low_power_automation.py --off
-python low_power_automation.py --status
+### Basic Agent Operation
 
-# UI element discovery
-python ui_dumper_main.py "System Settings"
-python ui_dumper_main.py Calculator
-python ui_dumper_main.py --chrome
+```python
+from agent_core import AgentCore
+
+# Create agent
+agent = AgentCore()
+
+# Run autonomous loop
+result = agent.run_autonomous_loop(
+    goal="optimize battery life",
+    target_app="System Settings",
+    max_iterations=5
+)
+
+print(f"Success: {result['success']}")
+print(f"Iterations: {result['iterations']}")
+print(f"Errors: {result['errors']}")
 ```
 
-## 🎯 Use Cases
+### Individual Component Usage
 
-### 1. Battery Optimization
+#### Perception Engine
 
-**Goal**: "optimize battery life"
-**System discovers**:
+```python
+from perception import PerceptionEngine
 
-- Low Power Mode toggle
-- Screen brightness controls
-- Background app settings
-- Battery usage statistics
+perception = PerceptionEngine()
 
-**LLM generates plan**:
+# Discover UI elements
+ui_signals = perception.discover_ui_signals("System Settings")
+print(f"Found {len(ui_signals)} UI elements")
 
-- Enable Low Power Mode (Only on Battery)
-- Reduce screen brightness
-- Disable unnecessary background apps
-- Configure power management
+# Get system state
+system_state = perception.get_system_state()
+print(f"Battery: {system_state.battery_level}%")
 
-### 2. Security Enhancement
-
-**Goal**: "enhance security"
-**System discovers**:
-
-- FileVault encryption settings
-- Firewall controls
-- Touch ID configuration
-- Password requirements
-
-**LLM generates plan**:
-
-- Enable FileVault if not enabled
-- Configure strong password requirements
-- Enable two-factor authentication
-- Review firewall settings
-
-### 3. Accessibility Setup
-
-**Goal**: "improve accessibility"
-**System discovers**:
-
-- VoiceOver settings
-- Display contrast options
-- Text size controls
-- Zoom functionality
-
-**LLM generates plan**:
-
-- Enable VoiceOver with optimal settings
-- Increase text size
-- Enable high contrast mode
-- Configure zoom shortcuts
-
-## 🧠 How the LLM Makes Decisions
-
-### Input to Gemini
-
-```
-GOAL: optimize battery life
-
-AVAILABLE UI ELEMENTS:
-- ID: low_power_mode
-  Type: AXPopUpButton
-  Position: (1343, 86)
-  Current Value: Never
-  Available Options: ['Never', 'Always', 'Only on Battery']
-  Actions: ['click']
-
-SYSTEM STATE:
-Battery Level: 39%
-Power Source: battery
-Network: connected
-Time: 07:51
-Memory Usage: 76.5%
-CPU Usage: 22.7%
-
-EXTERNAL KNOWLEDGE:
-battery_optimization: {
-  "low_power_mode": "Reduces background activity and performance",
-  "screen_brightness": "Major battery drain factor",
-  "background_apps": "Can significantly impact battery life"
-}
+# Get context
+context = perception.get_context("System Settings")
+print(f"App: {context['app_name']}")
 ```
 
-### LLM Response
+#### Reasoning Engine
 
-```json
-{
-  "plan": [
-    {
-      "action": "click",
-      "target": "low_power_mode",
-      "reason": "Enable Low Power Mode for battery optimization"
-    },
-    {
-      "action": "select",
-      "target": "Only on Battery",
-      "reason": "Optimal setting for battery life"
-    }
-  ],
-  "reasoning": "Battery is at 39% and on battery power. Low Power Mode will significantly extend battery life.",
-  "alternatives": ["Manual configuration", "Gradual implementation"],
-  "risks": ["May require user confirmation", "Could affect system performance"],
-  "confidence": 0.9
-}
+```python
+from reasoning import ReasoningEngine
+
+reasoning = ReasoningEngine()
+
+# Gather knowledge
+knowledge = reasoning.gather_knowledge("optimize battery life", perception_data)
+
+# Analyze situation
+plan = reasoning.analyze_situation(
+    goal="optimize battery life",
+    perception=perception_data,
+    knowledge=knowledge,
+    agent_state=agent_state
+)
+
+print(f"Confidence: {plan['confidence']}")
+print(f"Plan: {plan['plan']}")
 ```
 
-## 🔍 Signal Discovery Details
+#### Action Engine
 
-### UI Element Types Discovered
+```python
+from action import ActionEngine
 
-- **Buttons**: Clickable elements with actions
-- **Pop-up Buttons**: Dropdown menus (like Low Power Mode)
-- **Checkboxes**: Toggle switches
-- **Text Fields**: Input areas
-- **Sliders**: Value controls
-- **Menu Items**: Dropdown options
+action_engine = ActionEngine()
 
-### System State Monitored
+# Execute single action
+result = action_engine.execute_action({
+    "action": "click",
+    "target": "AX_FEATURE_DISPLAY",
+    "reason": "Navigate to display settings"
+})
 
-- **Battery Level**: Current charge percentage
-- **Power Source**: Battery or AC power
-- **Network Status**: Connected/disconnected
-- **Memory Usage**: RAM utilization
-- **CPU Usage**: Processor load
-- **Time**: Current system time
+print(f"Success: {result['success']}")
 
-### Constraints Identified
+# Execute action sequence
+actions = [
+    {"action": "click", "target": "AXButton_533.0_310.0"},
+    {"action": "wait", "duration": 1.0},
+    {"action": "click", "target": "AXButton_340.0_276.0"}
+]
 
-- **Low Battery**: < 20% charge
-- **High Memory Usage**: > 80% RAM
-- **High CPU Usage**: > 80% processor
-- **Network Issues**: Connectivity problems
+results = action_engine.execute_action_sequence(actions)
+```
 
-## 🚨 Error Handling
+#### Memory System
+
+```python
+from memory import MemorySystem
+
+memory = MemorySystem()
+
+# Store experiences
+memory.store_perception(perception_data)
+memory.store_reasoning(reasoning_data)
+memory.store_actions(action_results)
+
+# Retrieve relevant memories
+relevant = memory.retrieve_relevant_memories("battery optimization")
+
+# Learn from experience
+insights = memory.learn_from_experience()
+print(f"Learning confidence: {insights['learning_confidence']}")
+
+# Export memories
+memory.export_memories("memories.json")
+```
+
+## Advanced Usage
+
+### Custom Goals
+
+The agent can handle various types of goals:
+
+```python
+# Battery optimization
+agent.run_autonomous_loop("optimize battery life", "System Settings")
+
+# Security enhancement
+agent.run_autonomous_loop("enhance security", "System Settings")
+
+# Accessibility improvement
+agent.run_autonomous_loop("improve accessibility", "System Settings")
+
+# Custom application
+agent.run_autonomous_loop("configure display settings", "System Settings")
+```
+
+### Custom Action Types
+
+You can extend the action engine with custom actions:
+
+```python
+class CustomActionEngine(ActionEngine):
+    def _execute_custom_action(self, target: str, params: dict) -> dict:
+        """Execute a custom action"""
+        try:
+            # Your custom logic here
+            return {"success": True, "result": "Custom action completed"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+```
+
+### Memory Management
+
+```python
+# Configure memory limits
+memory = MemorySystem(max_memories=2000)
+
+# Enable/disable learning
+memory.learning_enabled = True
+
+# Get memory summary
+summary = memory.get_memory_summary()
+print(f"Total memories: {summary['total_memories']}")
+print(f"Memory usage: {summary['memory_usage_percent']}%")
+
+# Import/export memories
+memory.export_memories("backup.json")
+memory.import_memories("backup.json")
+```
+
+### Error Handling
+
+```python
+try:
+    result = agent.run_autonomous_loop(goal, target_app)
+    if not result['success']:
+        print(f"Agent failed after {result['iterations']} iterations")
+        print(f"Errors: {result['errors']}")
+except KeyboardInterrupt:
+    print("Agent stopped by user")
+except Exception as e:
+    print(f"Unexpected error: {e}")
+```
+
+## Configuration Options
+
+### Agent Configuration
+
+```python
+agent = AgentCore()
+
+# Configure limits
+agent.max_errors = 10          # Maximum errors before stopping
+agent.max_iterations = 20       # Maximum iterations per run
+
+# Configure state
+agent.state.goal = "custom goal"
+agent.state.progress = 0.5
+agent.state.confidence = 0.8
+```
+
+### Perception Configuration
+
+```python
+perception = PerceptionEngine()
+
+# Configure scanning limits
+perception.max_elements = 100   # Maximum elements to scan
+perception.max_windows = 3      # Maximum windows to scan
+```
+
+### Action Configuration
+
+```python
+action_engine = ActionEngine()
+
+# Configure retry settings
+action_engine.max_retries = 5
+action_engine.action_timeout = 15.0
+```
+
+## Troubleshooting
 
 ### Common Issues
 
-1. **API Key Invalid**: Set `GEMINI_API_KEY` environment variable
-2. **App Not Found**: Ensure target application is open
-3. **No UI Elements**: Check accessibility permissions
-4. **Network Issues**: Verify internet connection
+#### 1. "GEMINI_API_KEY not found"
 
-### Fallback Behavior
+**Solution**: Create `.env` file with your actual API key
 
-- **Mock Planning**: Uses rule-based planning when Gemini unavailable
-- **Graceful Degradation**: Continues with partial information
-- **Error Recovery**: Provides alternative approaches
-
-## 📁 File Structure
-
-```
-/Users/andyphu/hackharvard/
-├── ARCHITECTURE.md              # System architecture documentation
-├── USAGE_GUIDE.md              # This usage guide
-├── intelligent_automation.py   # Main system implementation
-├── test_intelligent_automation.py  # Test script
-├── ui_dumper_main.py           # UI element discovery tool
-├── low_power_automation.py     # Specialized Low Power Mode automation
-├── calculator_debug.py         # Calculator automation example
-└── automation_result.json      # Generated automation plans
+```bash
+echo "GEMINI_API_KEY=your_actual_key_here" > .env
 ```
 
-## 🔮 Future Enhancements
+#### 2. "Accessibility permission denied"
 
-### Planned Features
+**Solution**: Grant accessibility permissions in System Settings
 
-- **Real-time execution**: Execute generated plans automatically
-- **Learning system**: Improve from user feedback
-- **Cross-platform support**: Windows and Linux compatibility
-- **Voice commands**: Natural language interface
-- **Workflow orchestration**: Complex multi-step automations
+1. System Settings → Privacy & Security → Accessibility
+2. Add your terminal and IDE to the list
+3. Ensure both are enabled
 
-### Integration Possibilities
+#### 3. "Element not found"
 
-- **Calendar integration**: Schedule automations
-- **Cloud sync**: Share automation across devices
-- **API access**: Third-party automation integration
-- **Predictive automation**: Anticipate user needs
+**Solution**: Check if the target application is open and accessible
 
-## 🎉 Success Metrics
+```python
+# Debug element finding
+from action import ActionEngine
+action_engine = ActionEngine()
+element = action_engine._find_element("AX_FEATURE_DISPLAY")
+print(f"Element found: {element is not None}")
+```
 
-The system successfully:
+#### 4. "Gemini API error"
 
-- ✅ **Discovers 34+ UI elements** in System Settings
-- ✅ **Monitors system state** in real-time
-- ✅ **Integrates external knowledge** for context
-- ✅ **Generates intelligent plans** with Gemini 2.5 Flash-Lite
-- ✅ **Handles errors gracefully** with fallback mechanisms
-- ✅ **Provides detailed reasoning** for automation decisions
+**Solution**: Check your API key and network connectivity
 
-This architecture provides a foundation for intelligent, context-aware UI automation that can adapt to user needs and system conditions while maintaining security and privacy.
+```python
+# Test Gemini connection
+from reasoning import ReasoningEngine
+reasoning = ReasoningEngine()
+print(f"Gemini available: {reasoning.model is not None}")
+```
+
+### Debug Tools
+
+#### Debug Gemini Prompts
+
+```bash
+python debug_gemini_prompt.py
+```
+
+This shows exactly what Gemini receives and responds with.
+
+#### Test Individual Components
+
+```python
+# Test perception
+from perception import PerceptionEngine
+perception = PerceptionEngine()
+signals = perception.discover_ui_signals("System Settings")
+print(f"Found {len(signals)} signals")
+
+# Test reasoning
+from reasoning import ReasoningEngine
+reasoning = ReasoningEngine()
+# ... test reasoning logic
+
+# Test actions
+from action import ActionEngine
+action_engine = ActionEngine()
+# ... test action execution
+```
+
+#### Memory Analysis
+
+```python
+# Analyze memory patterns
+memory = MemorySystem()
+patterns = memory.get_patterns("success")
+print(f"Success patterns: {patterns}")
+
+# Export memories for analysis
+memory.export_memories("analysis.json")
+```
+
+## Performance Optimization
+
+### Scanning Optimization
+
+```python
+# Limit elements to prevent performance issues
+perception.max_elements = 50
+perception.max_windows = 2
+```
+
+### Memory Optimization
+
+```python
+# Configure memory limits
+memory = MemorySystem(max_memories=1000)
+memory.learning_enabled = True
+```
+
+### Action Optimization
+
+```python
+# Configure action timeouts
+action_engine.action_timeout = 5.0
+action_engine.max_retries = 3
+```
+
+## Best Practices
+
+### 1. Goal Definition
+
+- Be specific: "optimize battery life" vs "save power"
+- Include context: "enable Low Power Mode when battery is low"
+- Consider constraints: "without affecting performance"
+
+### 2. Error Handling
+
+- Always check return values
+- Handle KeyboardInterrupt gracefully
+- Implement retry logic for transient failures
+
+### 3. Memory Management
+
+- Export memories regularly
+- Monitor memory usage
+- Clean up old memories when needed
+
+### 4. Testing
+
+- Test with different applications
+- Test with different system states
+- Test error conditions
+
+### 5. Security
+
+- Never commit API keys
+- Use environment variables
+- Validate user inputs
+
+## Examples
+
+### Example 1: Battery Optimization
+
+```python
+from agent_core import AgentCore
+
+agent = AgentCore()
+result = agent.run_autonomous_loop(
+    goal="optimize battery life",
+    target_app="System Settings",
+    max_iterations=5
+)
+
+if result['success']:
+    print("Battery optimization completed successfully")
+else:
+    print(f"Failed after {result['iterations']} iterations")
+```
+
+### Example 2: Security Enhancement
+
+```python
+from agent_core import AgentCore
+
+agent = AgentCore()
+result = agent.run_autonomous_loop(
+    goal="enhance security settings",
+    target_app="System Settings",
+    max_iterations=3
+)
+
+print(f"Security enhancement: {result['success']}")
+```
+
+### Example 3: Custom Workflow
+
+```python
+from agent_core import AgentCore
+from perception import PerceptionEngine
+from reasoning import ReasoningEngine
+from action import ActionEngine
+
+# Create components
+agent = AgentCore()
+perception = agent.perception
+reasoning = agent.reasoning
+action = agent.action
+
+# Custom workflow
+perception_data = perception.discover_ui_signals("Calculator")
+knowledge = reasoning.gather_knowledge("calculate 1+2", perception_data)
+plan = reasoning.analyze_situation("calculate 1+2", perception_data, knowledge, agent.state)
+
+# Execute plan
+for action_item in plan['plan']:
+    result = action.execute_action(action_item)
+    print(f"Action {action_item['action']}: {result['success']}")
+```
+
+## Support
+
+### Getting Help
+
+1. Check the troubleshooting section above
+2. Run debug tools to identify issues
+3. Check the architecture documentation
+4. Review error messages and logs
+
+### Contributing
+
+1. Follow the modular architecture
+2. Add comprehensive error handling
+3. Include tests for new features
+4. Update documentation
+
+### Reporting Issues
+
+When reporting issues, include:
+
+1. Error messages and stack traces
+2. System information (macOS version, Python version)
+3. Steps to reproduce
+4. Debug output from tools
+
+This usage guide provides comprehensive information for using the agent system effectively. The system is designed to be robust, intelligent, and easy to use while providing powerful automation capabilities.

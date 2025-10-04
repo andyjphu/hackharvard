@@ -1,0 +1,31 @@
+# Agent System Dependencies
+# Core dependencies for the autonomous agent system
+
+# macOS Accessibility APIs
+atomacos>=2.0.0
+
+# System monitoring and process management
+psutil>=5.9.0
+
+# Google Gemini AI integration
+google-generativeai>=0.3.0
+
+# Environment variable management
+python-dotenv>=1.0.0
+
+# Optional: Web search integration (future feature)
+# requests>=2.31.0
+
+# Optional: Enhanced JSON handling
+# ujson>=5.8.0
+
+# Optional: Advanced memory management
+# numpy>=1.24.0
+
+# Optional: Performance monitoring
+# memory-profiler>=0.60.0
+
+# Development dependencies (optional)
+# pytest>=7.4.0
+# black>=23.0.0
+# flake8>=6.0.0

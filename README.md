@@ -1,206 +1,229 @@
-# UI Element Dumpers
+# Autonomous Agent System
 
-This repository contains comprehensive tools for dumping UI elements from macOS applications in beautiful tree format.
+A complete rearchitecture of an intelligent autonomous agent system that can perceive, reason, and act using macOS accessibility APIs. The system implements a modular perceive-reason-act loop with intelligent reasoning powered by Gemini 2.0 Flash.
 
-## Files Overview
+## 🚀 Features
 
-### 1. `ui_dumper_main.py` ⭐ **RECOMMENDED**
-- The most polished and user-friendly dumper
-- Beautiful emoji-based tree output
-- Works with atomacos library
-- Categorizes UI elements by type
-- Handles multiple applications
-- **No limiting - dumps everything**
+- **Autonomous Operation**: Complete perceive-reason-act loop with intelligent decision making
+- **UI Automation**: Click, type, select, and interact with any macOS application
+- **Intelligent Reasoning**: Powered by Gemini 2.0 Flash for contextual planning
+- **Memory & Learning**: Stores experiences and learns from patterns
+- **Modular Architecture**: Clean separation of concerns with 5 core modules
+- **Robust Error Handling**: Comprehensive error recovery and retry logic
+- **Position-based Element Finding**: Reliable UI element identification
+- **System Monitoring**: Battery, CPU, memory, and network state awareness
 
-### 2. `ui_dumper_advanced.py`
-- Full-featured dumper using ApplicationServices and CoreGraphics
-- Requires accessibility permissions
-- Supports all applications
-- Advanced tree formatting
-- Handles Chrome specifically with multiple approaches
+## 🏗️ Architecture
 
-### 3. `ui_dumper_basic.py`
-- Basic dumper using ApplicationServices
-- Requires accessibility permissions
-- Simple tree output
-- Good for learning the basics
+The system consists of 5 core modules:
 
-### 4. `ui_dumper_atomac.py`
-- Uses atomac library for UI automation
-- Finds toolbar buttons specifically
-- Good for button-focused analysis
+1. **Agent Core** (`agent_core.py`) - Main orchestration and perceive-reason-act loop
+2. **Perception Engine** (`perception.py`) - UI scanning and system monitoring
+3. **Reasoning Engine** (`reasoning.py`) - Gemini-powered intelligent planning
+4. **Action Engine** (`action.py`) - UI interaction and automation
+5. **Memory System** (`memory.py`) - Experience storage and learning
 
-### 5. `ui_dumper_share.py`
-- Specialized for finding and clicking share buttons
-- Uses atomac library
-- Includes menu navigation
+## 📋 Requirements
 
-## Usage
+- macOS with accessibility APIs enabled
+- Python 3.7+
+- Gemini API key
+- Terminal/IDE with accessibility permissions
 
-### Main Dumper (Recommended)
+## 🛠️ Installation
+
+### 1. Clone and Setup
 
 ```bash
-# Activate virtual environment
-source .venv/bin/activate
-
-# System overview
-python ui_dumper_main.py --system
-
-# All applications
-python ui_dumper_main.py --all
-
-# Specific applications
-python ui_dumper_main.py --chrome
-python ui_dumper_main.py --safari
-python ui_dumper_main.py --cursor
-python ui_dumper_main.py "Application Name"
-```
-
-### Other Dumpers
-
-```bash
-# Advanced dumper (Chrome-focused)
-python ui_dumper_advanced.py --chrome
-
-# Basic dumper
-python ui_dumper_basic.py
-
-# Atomac-based dumper
-python ui_dumper_atomac.py
-
-# Share button finder
-python ui_dumper_share.py
-```
-
-## Features
-
-### System Overview (`--system`)
-- Shows total processes and unique applications
-- Top applications by process count
-- Display information
-- Categorized application listing
-
-### Application Dumping
-- **Windows**: Shows all windows with titles and dimensions
-- **Toolbars**: Finds and lists all toolbars
-- **Buttons**: Discovers all buttons with titles and descriptions
-- **Tab Groups**: Shows tab organization
-- **Text Fields**: Lists input fields
-- **Static Text**: Shows text elements
-- **Groups**: Displays UI groups
-- **Lists**: Finds list elements
-- **Tables**: Shows table structures
-- **Images**: Lists image elements
-- **Checkboxes**: Finds checkboxes
-- **Radio Buttons**: Shows radio button groups
-- **Sliders**: Lists slider controls
-- **Combo Boxes**: Finds dropdown menus
-- **Pop-up Buttons**: Shows popup controls
-- **Menus**: Lists menu structures
-- **Scroll Areas**: Finds scrollable regions
-- **Browsers**: Discovers browser elements
-
-### Beautiful Output
-- 🌳 Tree structure with emojis
-- 🪟 Windows
-- 🔘 Buttons
-- 🔧 Toolbars
-- 📑 Tab Groups
-- 📝 Text Fields
-- 📄 Static Text
-- 📦 Groups
-- 📋 Lists
-- 📊 Tables
-- 🖼️ Images
-- ☑️ Checkboxes
-- 🎚️ Sliders
-- 🌐 Browsers
-- 🚀 Applications
-
-## Requirements
-
-- macOS (uses ApplicationServices and CoreGraphics)
-- Python 3.13+
-- Virtual environment with required packages:
-  - `atomacos` (for UI automation)
-  - `pyobjc` (for macOS integration)
-
-## Installation
-
-```bash
-# Create virtual environment
+git clone <repository-url>
+cd hackharvard
 python -m venv .venv
-source .venv/bin/activate
-
-# Install dependencies
-pip install atomacos
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
-## Examples
+### 2. Configure API Key
 
-### Chrome Analysis
+Create a `.env` file:
 
 ```bash
-python ui_dumper_main.py --chrome
+echo "GEMINI_API_KEY=your_actual_gemini_api_key_here" > .env
 ```
 
-Output shows:
-- 2 Chrome windows found
-- Window 1: "Find in page" dialog
-- Window 2: Main browser window with full UI tree
-- 23 buttons (Close, New Tab, Back, Forward, etc.)
-- 3 toolbars (Bookmarks, Saved Tab Groups)
-- 1 tab group with multiple tabs
-- 2 text fields (Address bar, Find field)
-- 19 radio buttons (representing tabs)
-- 12 pop-up buttons (Extensions, Chrome menu, etc.)
+Get your API key from [Google AI Studio](https://makersuite.google.com/app/apikey).
 
-### System Overview
+### 3. Grant Permissions
+
+1. Open **System Settings** → **Privacy & Security** → **Accessibility**
+2. Add your terminal and IDE to the list
+3. Ensure both are enabled
+
+## 🚀 Quick Start
+
+### Basic Usage
+
+```python
+from agent_core import AgentCore
+
+# Create agent
+agent = AgentCore()
+
+# Run autonomous loop
+result = agent.run_autonomous_loop(
+    goal="optimize battery life",
+    target_app="System Settings",
+    max_iterations=5
+)
+
+print(f"Success: {result['success']}")
+```
+
+### Test the System
 
 ```bash
-python ui_dumper_main.py --system
+# Run comprehensive tests
+python test_agent.py
+
+# Debug Gemini prompts
+python debug_gemini_prompt.py
+
+# Run with specific goal
+python agent_core.py "optimize battery life" "System Settings"
 ```
 
-Shows:
-- 457 total processes
-- 367 unique applications
-- Top applications by process count
-- Categorized application listing
+## 📚 Documentation
 
-## Technical Details
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Detailed system architecture and design decisions
+- **[USAGE_GUIDE.md](USAGE_GUIDE.md)** - Comprehensive usage guide with examples
+- **[requirements.txt](requirements.txt)** - Python dependencies
 
-The dumpers use multiple approaches:
+## 🎯 Example Goals
 
-1. **ApplicationServices**: Direct accessibility API access
-2. **CoreGraphics**: Window listing and geometry
-3. **atomacos**: High-level UI automation
-4. **System Commands**: Process listing and system info
+The agent can handle various automation tasks:
 
-The tools handle:
-- Permission requirements
-- Error handling
-- Circular reference detection
-- Depth limiting
-- Beautiful formatting
-- **No output limiting - shows everything**
+```python
+# Battery optimization
+agent.run_autonomous_loop("optimize battery life", "System Settings")
 
-## Troubleshooting
+# Security enhancement
+agent.run_autonomous_loop("enhance security", "System Settings")
 
-### Accessibility Permissions
-If you get permission errors, grant accessibility permissions:
-1. System Preferences → Security & Privacy → Privacy
-2. Select "Accessibility" from the left sidebar
-3. Add your terminal/IDE to the list
+# Accessibility improvement
+agent.run_autonomous_loop("improve accessibility", "System Settings")
 
-### Missing Dependencies
+# Calculator automation
+agent.run_autonomous_loop("calculate 1+2", "Calculator")
+```
+
+## 🔧 Key Components
+
+### Perception Engine
+
+- Scans UI elements with position-based IDs
+- Monitors system state (battery, CPU, memory)
+- Analyzes application context
+- Identifies system constraints
+
+### Reasoning Engine
+
+- Integrates Gemini 2.0 Flash for intelligent planning
+- Combines UI signals, system state, and domain knowledge
+- Generates structured action plans with confidence scores
+- Provides alternatives and risk assessment
+
+### Action Engine
+
+- Executes actions on UI elements (click, type, select, scroll)
+- Uses multiple element finding strategies
+- Implements retry logic and error handling
+- Validates actions before execution
+
+### Memory System
+
+- Stores perceptions, reasonings, and actions
+- Implements relevance-based retrieval
+- Recognizes success/failure patterns
+- Enables learning from experience
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+**"GEMINI_API_KEY not found"**
+
+- Create `.env` file with your actual API key
+- Ensure key is valid and active
+
+**"Accessibility permission denied"**
+
+- Grant accessibility permissions in System Settings
+- Add terminal and IDE to accessibility list
+
+**"Element not found"**
+
+- Ensure target application is open and accessible
+- Check element IDs in debug output
+
+**"Gemini API error"**
+
+- Verify API key and network connectivity
+- Check Gemini service status
+
+### Debug Tools
+
 ```bash
-pip install atomacos pyobjc-framework-ApplicationServices
+# Debug Gemini prompts and responses
+python debug_gemini_prompt.py
+
+# Test individual components
+python -c "from agent_core import AgentCore; agent = AgentCore(); print('Agent created successfully')"
 ```
 
-### No Windows Found
-- Ensure the application is running
-- Try clicking on the application window
-- Some applications may not expose their UI through accessibility APIs
+## 📊 System Status
 
-### Cursor/VS Code Limited Output
-This is normal! Electron-based applications (Cursor, VS Code, Discord) have limited accessibility support. The dumper shows everything that's available through accessibility APIs.
+The system has been completely rearchitected from scratch with all critical issues resolved:
+
+- ✅ **Element Finding**: Fixed critical bug with `findAllR()` vs `findFirst()`
+- ✅ **ID Matching**: Robust position-based element ID generation
+- ✅ **Gemini Integration**: Working perfectly with structured prompts
+- ✅ **Memory System**: Complete experience storage and learning
+- ✅ **Error Handling**: Comprehensive error recovery
+- ✅ **Modular Design**: Clean separation of concerns
+
+## 🔒 Security
+
+- API keys stored in `.env` file (never committed)
+- Local processing of all UI interactions
+- No external data transmission except to Gemini
+- Accessibility permissions handled securely
+
+## 🚀 Performance
+
+- Optimized UI scanning with element limits
+- Efficient memory management with deque
+- Action execution with timeout protection
+- Comprehensive error handling and recovery
+
+## 🤝 Contributing
+
+1. Follow the modular architecture
+2. Add comprehensive error handling
+3. Include tests for new features
+4. Update documentation
+
+## 📄 License
+
+This project is for educational and research purposes. Please ensure compliance with macOS accessibility guidelines and Google Gemini API terms of service.
+
+## 🆘 Support
+
+For issues and questions:
+
+1. Check the troubleshooting section
+2. Run debug tools to identify problems
+3. Review architecture documentation
+4. Check error messages and logs
+
+---
+
+**Note**: This system requires macOS with accessibility APIs enabled and a valid Gemini API key. The agent is designed for autonomous UI automation and should be used responsibly.

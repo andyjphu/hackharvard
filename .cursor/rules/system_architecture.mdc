@@ -1,0 +1,79 @@
+---
+description: USE WHEN designing multi-file agent system architecture
+globs: **/*agent*.py,**/*core*.py
+alwaysApply: true
+---
+
+When active, enforce:
+
+## MODULAR ARCHITECTURE
+
+- agent_core.py: Main orchestration with perceive-reason-act loop
+- perception.py: UI scanning and system monitoring
+- reasoning.py: Gemini-powered planning and decision making
+- action.py: Accessibility API execution
+- memory.py: Experience storage and learning
+
+## PERCEIVE-REASON-ACT LOOP
+
+```python
+def run_autonomous_loop(self, goal, target_app, max_iterations):
+    while iterations < max_iter and self.state.error_count < self.max_errors:
+        # 1. Perceive
+        perception_data = self.perceive(target_app)
+
+        # 2. Reason
+        reasoning_result = self.reason(goal, perception_data)
+
+        # 3. Act
+        action_result = self.act(reasoning_result)
+
+        # Check goal achievement and confidence
+        if self._is_goal_achieved(goal, perception_data, reasoning_result):
+            break
+```
+
+## AGENT STATE MANAGEMENT
+
+- Track goal, progress, confidence, errors
+- Use dataclasses for structured state
+- Implement error limits and timeouts
+- Store session information
+
+## ERROR HANDLING PATTERNS
+
+- Graceful degradation on perception errors
+- Retry logic for failed actions
+- Comprehensive error reporting
+- Safe operation with system constraints
+- Timeout protection for long-running operations
+
+## MEMORY INTEGRATION
+
+- Store all perceptions, reasonings, and actions
+- Calculate importance scores
+- Implement relevance-based retrieval
+- Support learning from experience
+- Export/import capabilities
+
+## TESTING STRATEGY
+
+- Test each component individually
+- Test full perceive-reason-act loop
+- Test error handling and recovery
+- Test memory storage and retrieval
+- Test with different goals and apps
+
+## DEPENDENCY MANAGEMENT
+
+- Use virtual environments
+- Pin dependency versions
+- Handle missing dependencies gracefully
+- Provide clear setup instructions
+
+## CONFIGURATION
+
+- Environment variables for API keys
+- Configurable limits and timeouts
+- Logging and debugging options
+- System-specific settings

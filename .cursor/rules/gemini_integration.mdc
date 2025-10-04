@@ -1,0 +1,62 @@
+---
+description: USE WHEN integrating Gemini 2.0 Flash for reasoning in agent systems
+globs: **/*reasoning*.py,**/*agent*.py
+alwaysApply: true
+---
+
+When active, enforce:
+
+## GEMINI 2.0 FLASH INTEGRATION
+
+- Use GenerativeModel("gemini-2.0-flash-exp") for reasoning
+- Configure with API key from environment: genai.configure(api_key=api_key)
+- Handle API errors gracefully with fallbacks
+- Parse JSON responses from text output
+
+## PROMPT ENGINEERING PATTERNS
+
+- Include exact element IDs from perception in prompts
+- Use "USE THESE EXACT IDs" instruction
+- Provide clear JSON structure examples
+- Include system state, constraints, and knowledge
+- Ask for confidence scores and alternatives
+
+## RESPONSE PARSING
+
+```python
+def _parse_gemini_response(self, response_text: str):
+    try:
+        import re
+        json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+        if json_match:
+            json_str = json_match.group()
+            return json.loads(json_str)
+        else:
+            return self._parse_text_response(response_text)
+    except Exception as e:
+        return self._parse_text_response(response_text)
+```
+
+## PROMPT STRUCTURE
+
+- Goal and current situation
+- Available UI elements with exact IDs
+- System state (battery, memory, CPU)
+- Knowledge base and constraints
+- Clear task description
+- JSON response format example
+
+## ERROR HANDLING
+
+- Check API key availability
+- Handle network errors
+- Provide fallback reasoning if Gemini fails
+- Log errors for debugging
+- Return structured error responses
+
+## ENVIRONMENT SETUP
+
+- GEMINI_API_KEY in .env file (REQUIRED)
+- Load with python-dotenv: load_dotenv()
+- Validate API key before use
+- Handle missing or invalid keys gracefully

@@ -1,346 +1,359 @@
-# Intelligent UI Automation Architecture
+# Agent System Architecture
 
 ## Overview
 
-This architecture enables an LLM to make informed decisions about UI automation by combining real-time UI element discovery, web search for context, and intelligent planning. The system presents all available signals to the LLM, allowing it to construct optimal automation plans based on current state, user goals, and external knowledge.
+This is a complete rearchitecture of the autonomous agent system, built from scratch with all learned knowledge from previous iterations. The system implements a modular perceive-reason-act loop with intelligent reasoning powered by Gemini 2.0 Flash.
 
 ## Core Components
 
-### 1. Signal Discovery Engine (`SignalCollector`)
+### 1. Agent Core (`agent_core.py`)
 
-**Purpose**: Discovers and presents all available UI signals to the LLM
+**Main orchestration system that coordinates all components**
 
-**Components**:
-- **UI Element Scanner**: Uses accessibility APIs to discover all interactive elements
-- **Context Analyzer**: Analyzes current application state, window titles, focused elements
-- **Capability Detector**: Identifies available actions (click, type, select, etc.)
-- **State Monitor**: Tracks current system state (battery, network, time, etc.)
+- **Purpose**: Implements the perceive-reason-act loop
+- **Key Features**:
+  - Autonomous operation with configurable iterations
+  - Error handling and recovery
+  - State management (goal, progress, confidence, errors)
+  - Memory integration for learning
+  - Goal achievement detection
 
-**Output**: Structured signal map with all available options
+**Key Classes**:
 
-```python
-{
-    "ui_elements": [
-        {
-            "id": "low_power_mode",
-            "type": "popup_button", 
-            "position": (1343, 86),
-            "current_value": "Never",
-            "available_options": ["Never", "Always", "Only on Battery"],
-            "action": "click_to_open_dropdown"
-        }
-    ],
-    "system_state": {
-        "battery_level": 42,
-        "power_source": "battery",
-        "time": "14:30",
-        "network_status": "connected"
-    },
-    "context": {
-        "current_app": "System Settings",
-        "current_pane": "Battery",
-        "focused_element": "low_power_mode"
-    }
-}
+- `AgentCore`: Main agent orchestrator
+- `AgentState`: Tracks agent's current state (goal, progress, errors, etc.)
+
+**Critical Methods**:
+
+- `run_autonomous_loop()`: Main execution loop
+- `perceive()`: Delegates to perception engine
+- `reason()`: Delegates to reasoning engine
+- `act()`: Delegates to action engine
+- `_is_goal_achieved()`: Checks if goal is completed
+
+### 2. Perception Engine (`perception.py`)
+
+**Handles all environmental perception and signal discovery**
+
+- **Purpose**: Discovers UI elements and monitors system state
+- **Key Features**:
+  - UI element scanning with position-based IDs
+  - System state monitoring (battery, CPU, memory)
+  - Context analysis (current app, focused elements)
+  - Constraint identification (low battery, high resource usage)
+
+**Key Classes**:
+
+- `PerceptionEngine`: Main perception coordinator
+- `UISignal`: Represents discovered UI elements
+- `SystemState`: Current system information
+
+**Critical Methods**:
+
+- `discover_ui_signals()`: Scans for interactive UI elements
+- `get_system_state()`: Monitors battery, CPU, memory
+- `get_context()`: Analyzes current application context
+- `_create_ui_signal()`: Generates position-based element IDs
+
+**Element ID Generation**:
+
+- Uses `AXIdentifier` when available
+- Falls back to position-based IDs: `{role}_{x}_{y}` (e.g., `AXButton_533.0_310.0`)
+- Ensures unique, findable element identifiers
+
+### 3. Reasoning Engine (`reasoning.py`)
+
+**Handles intelligent reasoning and plan generation using Gemini 2.0 Flash**
+
+- **Purpose**: Analyzes situation and generates action plans
+- **Key Features**:
+  - Gemini 2.0 Flash integration
+  - Comprehensive prompt engineering
+  - JSON response parsing
+  - Knowledge integration (domain knowledge, best practices)
+  - Confidence scoring and alternative planning
+
+**Key Classes**:
+
+- `ReasoningEngine`: Main reasoning coordinator
+- `ReasoningResult`: Structured reasoning output
+
+**Critical Methods**:
+
+- `analyze_situation()`: Main reasoning entry point
+- `_build_reasoning_prompt()`: Comprehensive prompt engineering
+- `_parse_gemini_response()`: Extracts JSON from Gemini responses
+- `gather_knowledge()`: Integrates domain knowledge and best practices
+
+**Prompt Engineering**:
+
+- Explicitly instructs Gemini to use exact element IDs from perception
+- Includes comprehensive context (UI elements, system state, knowledge)
+- Requests structured JSON responses with plans, confidence, alternatives
+- Emphasizes "USE THESE EXACT IDs" to prevent ID generation
+
+### 4. Action Engine (`action.py`)
+
+**Executes actions on UI elements using accessibility APIs**
+
+- **Purpose**: Executes planned actions on discovered UI elements
+- **Key Features**:
+  - Position-based element finding with tolerance
+  - Multiple action types (click, type, select, scroll, wait, key)
+  - Action validation and error handling
+  - Retry logic for failed actions
+
+**Key Classes**:
+
+- `ActionEngine`: Main action coordinator
+- `ActionResult`: Structured action results
+
+**Critical Methods**:
+
+- `execute_action()`: Main action execution
+- `_find_element()`: **CRITICAL** - Finds elements using multiple strategies
+- `_execute_click()`, `_execute_type()`, etc.: Specific action implementations
+
+**Element Finding Strategy** (CRITICAL):
+
+1. **By Identifier**: `findAllR(AXIdentifier=target)` - Primary method
+2. **By Title**: `findAllR(AXTitle=target)` - Fallback
+3. **Position-based**: Parse `{role}_{x}_{y}` and find within 10-pixel tolerance
+4. **Role + Title**: Search by role and title combination
+
+**Fixed Critical Bug**:
+
+- Changed from `findFirst()` to `findAllR()` for better compatibility
+- `findFirst()` doesn't work reliably with `AXIdentifier`
+- `findAllR()` works perfectly and returns list of matching elements
+
+### 5. Memory System (`memory.py`)
+
+**Manages experience storage, retrieval, and learning**
+
+- **Purpose**: Stores and learns from agent experiences
+- **Key Features**:
+  - Multiple memory types (perception, reasoning, actions, episodes)
+  - Importance scoring and relevance-based retrieval
+  - Pattern recognition (success/failure patterns)
+  - Learning from experience
+  - Memory export/import capabilities
+
+**Key Classes**:
+
+- `MemorySystem`: Main memory coordinator
+- `MemoryEntry`: Individual memory entries
+
+**Critical Methods**:
+
+- `store_perception()`, `store_reasoning()`, `store_actions()`: Store different memory types
+- `retrieve_relevant_memories()`: Context-aware memory retrieval
+- `get_patterns()`: Identify success/failure patterns
+- `learn_from_experience()`: Extract insights from stored experiences
+
+## Data Flow
+
+```
+1. PERCEIVE
+   ├── Scan UI elements → Generate position-based IDs
+   ├── Monitor system state → Battery, CPU, memory
+   └── Analyze context → Current app, focused elements
+
+2. REASON
+   ├── Gather knowledge → Domain knowledge, best practices
+   ├── Build prompt → Include exact element IDs, system state
+   ├── Query Gemini → Generate structured plan
+   └── Parse response → Extract plan, confidence, alternatives
+
+3. ACT
+   ├── Find elements → Use multiple finding strategies
+   ├── Execute actions → Click, type, select, etc.
+   └── Store results → Success/failure tracking
+
+4. MEMORY
+   ├── Store perception → UI elements, system state
+   ├── Store reasoning → Plans, confidence, alternatives
+   ├── Store actions → Results, errors, timestamps
+   └── Learn patterns → Success/failure analysis
 ```
 
-### 2. Knowledge Integration Engine (`KnowledgeIntegrator`)
+## Critical Design Decisions
 
-**Purpose**: Provides external context and domain knowledge to the LLM
+### 1. Element ID Matching (CRITICAL)
 
-**Components**:
-- **Web Search Interface**: Searches for relevant information about the task
-- **Domain Knowledge Base**: Pre-built knowledge about common automation tasks
-- **Best Practices Engine**: Provides recommendations based on system behavior
-- **Contextual Information**: Gathers relevant system information
+- **Problem**: Gemini must use exact IDs from perception, not generate new ones
+- **Solution**:
+  - Perception generates robust position-based IDs when `AXIdentifier` missing
+  - Prompt explicitly instructs "USE THESE EXACT IDs"
+  - Action engine uses multiple finding strategies with tolerance
 
-**Example Web Searches**:
-- "macOS low power mode best practices battery life"
-- "System Settings automation accessibility APIs"
-- "Power management optimization techniques"
+### 2. Element Finding (CRITICAL)
 
-### 3. LLM Decision Engine (`LLMPlanner`)
+- **Problem**: `findFirst()` doesn't work reliably with `AXIdentifier`
+- **Solution**: Use `findAllR()` which works perfectly
+- **Implementation**: `findAllR(AXIdentifier=target)` returns list, take first element
 
-**Purpose**: Processes all signals and creates intelligent automation plans
+### 3. Position-Based Matching
 
-**Components**:
-- **Goal Parser**: Understands user intent and objectives
-- **Plan Generator**: Creates step-by-step automation sequences
-- **Risk Assessor**: Evaluates potential issues and side effects
-- **Optimization Engine**: Finds most efficient paths
+- **Problem**: Some elements lack `AXIdentifier` attributes
+- **Solution**: Generate position-based IDs `{role}_{x}_{y}` with 10-pixel tolerance
+- **Implementation**: Parse coordinates, find elements within tolerance
 
-**Input Processing**:
-1. Receives complete signal map from SignalCollector
-2. Integrates web search results and domain knowledge
-3. Analyzes user goal and constraints
-4. Generates multiple plan options
-5. Selects optimal plan with reasoning
+### 4. Prompt Engineering
 
-### 4. Execution Engine (`AutomationExecutor`)
+- **Problem**: Gemini generates abstract IDs instead of using perceived ones
+- **Solution**: Explicit instructions and comprehensive context
+- **Implementation**: "IMPORTANT: You MUST use the exact element IDs provided above"
 
-**Purpose**: Executes the LLM-generated plans with monitoring and error handling
+## Error Handling
 
-**Components**:
-- **Action Executor**: Performs UI interactions (clicks, typing, selections)
-- **Progress Monitor**: Tracks execution and detects deviations
-- **Error Handler**: Manages failures and provides recovery options
-- **Verification Engine**: Confirms successful completion
+### Perception Errors
 
-## Architecture Flow
+- Graceful degradation when apps not found
+- Timeout protection for UI scanning
+- Element limit enforcement to prevent performance issues
 
-```mermaid
-graph TD
-    A[User Goal] --> B[Signal Discovery Engine]
-    B --> C[Knowledge Integration Engine]
-    C --> D[LLM Decision Engine]
-    D --> E[Execution Engine]
-    E --> F[Result Verification]
-    F --> G[User Feedback]
-    
-    B --> B1[UI Element Scanner]
-    B --> B2[Context Analyzer]
-    B --> B3[State Monitor]
-    
-    C --> C1[Web Search Interface]
-    C --> C2[Domain Knowledge Base]
-    C --> C3[Best Practices Engine]
-    
-    D --> D1[Goal Parser]
-    D --> D2[Plan Generator]
-    D --> D3[Risk Assessor]
-    
-    E --> E1[Action Executor]
-    E --> E2[Progress Monitor]
-    E --> E3[Error Handler]
-```
+### Reasoning Errors
 
-## Detailed Component Specifications
+- Gemini API error handling with fallbacks
+- JSON parsing with text fallback
+- Network error recovery
 
-### Signal Discovery Engine
+### Action Errors
 
-```python
-class SignalCollector:
-    def discover_ui_signals(self, target_app=None):
-        """Discover all available UI elements and their capabilities"""
-        return {
-            "interactive_elements": self.scan_interactive_elements(),
-            "system_state": self.get_system_state(),
-            "application_context": self.get_app_context(),
-            "available_actions": self.identify_actions(),
-            "constraints": self.identify_constraints()
-        }
-    
-    def scan_interactive_elements(self):
-        """Find all clickable, typeable, selectable elements"""
-        elements = []
-        for element in self.get_all_ui_elements():
-            if self.is_interactive(element):
-                elements.append({
-                    "id": element.get_identifier(),
-                    "type": element.get_role(),
-                    "position": element.get_position(),
-                    "current_value": element.get_value(),
-                    "available_options": element.get_options(),
-                    "actions": element.get_available_actions()
-                })
-        return elements
-```
+- Element finding with multiple strategies
+- Action validation before execution
+- Retry logic for transient failures
+- Comprehensive error reporting
 
-### Knowledge Integration Engine
+### Memory Errors
 
-```python
-class KnowledgeIntegrator:
-    def gather_context(self, user_goal, current_signals):
-        """Gather relevant knowledge for the task"""
-        return {
-            "web_search_results": self.search_web(user_goal),
-            "domain_knowledge": self.get_domain_knowledge(user_goal),
-            "best_practices": self.get_best_practices(user_goal),
-            "system_recommendations": self.get_system_recommendations()
-        }
-    
-    def search_web(self, query):
-        """Search for relevant information"""
-        searches = [
-            f"{query} best practices",
-            f"{query} automation techniques",
-            f"{query} common issues",
-            f"{query} optimization tips"
-        ]
-        return [self.perform_search(s) for s in searches]
-```
+- Safe memory operations with exception handling
+- Memory limit enforcement
+- Export/import error recovery
 
-### LLM Decision Engine
+## Performance Optimizations
 
-```python
-class LLMPlanner:
-    def create_automation_plan(self, signals, knowledge, user_goal):
-        """Generate intelligent automation plan"""
-        prompt = self.build_decision_prompt(signals, knowledge, user_goal)
-        
-        return {
-            "plan": self.llm.generate_plan(prompt),
-            "reasoning": self.llm.get_reasoning(),
-            "alternatives": self.llm.get_alternatives(),
-            "risks": self.llm.assess_risks(),
-            "confidence": self.llm.get_confidence()
-        }
-    
-    def build_decision_prompt(self, signals, knowledge, goal):
-        """Build comprehensive prompt for LLM decision making"""
-        return f"""
-        GOAL: {goal}
-        
-        AVAILABLE UI ELEMENTS:
-        {self.format_ui_elements(signals['interactive_elements'])}
-        
-        SYSTEM STATE:
-        {self.format_system_state(signals['system_state'])}
-        
-        EXTERNAL KNOWLEDGE:
-        {self.format_knowledge(knowledge)}
-        
-        TASK: Create an optimal automation plan that achieves the goal using available elements.
-        Consider system state, best practices, and potential risks.
-        """
-```
+### UI Scanning
 
-## Example Use Cases
+- Limit total elements scanned (50 max)
+- Limit windows scanned (2 max)
+- Limit elements per role (10 max)
+- Timeout protection for deep recursion
 
-### 1. Power Management Automation
+### Memory Management
 
-**User Goal**: "Optimize battery life"
+- Deque with maxlen limits
+- Importance-based memory retention
+- Efficient relevance scoring
 
-**Signals Discovered**:
-- Low Power Mode toggle (Never/Always/Only on Battery)
-- Battery level (42%)
-- Power source (battery)
-- Screen brightness controls
-- Background app refresh settings
+### Action Execution
 
-**Web Knowledge**:
-- "macOS battery optimization best practices"
-- "Low power mode vs manual optimization"
-- "Background app refresh impact on battery"
+- Small delays between actions (0.5s)
+- Element finding with early returns
+- Action validation to prevent unnecessary execution
 
-**LLM Decision**:
-- Enable Low Power Mode (Only on Battery)
-- Reduce screen brightness
-- Disable unnecessary background refresh
-- Set optimal power management
+## Dependencies
 
-### 2. System Security Configuration
+### Core Dependencies
 
-**User Goal**: "Enhance system security"
+- `atomacos`: macOS accessibility APIs
+- `psutil`: System monitoring
+- `google-generativeai`: Gemini 2.0 Flash integration
+- `python-dotenv`: Environment variable loading
 
-**Signals Discovered**:
-- Firewall settings
-- FileVault encryption status
-- Touch ID settings
-- Password requirements
-- Two-factor authentication options
+### Optional Dependencies
 
-**Web Knowledge**:
-- "macOS security best practices 2024"
-- "FileVault encryption performance impact"
-- "Touch ID security considerations"
+- `requests`: Web search integration (future)
+- `json`: Built-in JSON handling
+- `time`: Built-in timing functions
 
-**LLM Decision**:
-- Enable FileVault if not already enabled
-- Configure strong password requirements
-- Enable two-factor authentication
-- Review firewall settings
+## Configuration
 
-### 3. Accessibility Setup
+### Environment Variables
 
-**User Goal**: "Improve accessibility for visual impairment"
+- `GEMINI_API_KEY`: Required for Gemini integration
+- Loaded from `.env` file using `python-dotenv`
 
-**Signals Discovered**:
-- VoiceOver settings
-- Display contrast options
-- Text size controls
-- Zoom functionality
-- High contrast mode
+### System Requirements
 
-**Web Knowledge**:
-- "macOS accessibility features for visual impairment"
-- "VoiceOver configuration best practices"
-- "Display accessibility optimization"
+- macOS with accessibility APIs enabled
+- Terminal/IDE with accessibility permissions
+- Python 3.7+ with virtual environment
 
-**LLM Decision**:
-- Enable VoiceOver with optimal settings
-- Increase text size
-- Enable high contrast mode
-- Configure zoom shortcuts
+## Testing Strategy
 
-## Implementation Strategy
+### Unit Testing
 
-### Phase 1: Core Infrastructure
-- Implement SignalCollector with UI element discovery
-- Create basic LLMPlanner with decision making
-- Build simple AutomationExecutor
+- Test each component individually
+- Mock external dependencies (Gemini, atomacos)
+- Validate data structures and error handling
 
-### Phase 2: Knowledge Integration
-- Add web search capabilities
-- Implement domain knowledge base
-- Create best practices engine
+### Integration Testing
 
-### Phase 3: Advanced Features
-- Add risk assessment and mitigation
-- Implement plan optimization
-- Create user feedback loop
+- Test full perceive-reason-act loop
+- Test with different goals and applications
+- Test error recovery and edge cases
 
-### Phase 4: Intelligence Enhancement
-- Add learning from user feedback
-- Implement adaptive planning
-- Create predictive capabilities
+### End-to-End Testing
 
-## Technical Requirements
-
-### Dependencies
-- **UI Automation**: `atomacos`, `ApplicationServices`
-- **Web Search**: `requests`, `beautifulsoup4`
-- **LLM Integration**: `openai`, `anthropic`, or local models
-- **System Monitoring**: `psutil`, `pyobjc`
-
-### Performance Considerations
-- **Signal Discovery**: < 2 seconds for complete UI scan
-- **Web Search**: < 5 seconds for knowledge gathering
-- **LLM Processing**: < 10 seconds for plan generation
-- **Execution**: Real-time with progress monitoring
-
-### Error Handling
-- **Graceful Degradation**: Continue with partial information
-- **Recovery Mechanisms**: Retry failed actions
-- **User Notification**: Clear error messages and alternatives
-- **Logging**: Comprehensive execution logs
-
-## Security Considerations
-
-### Privacy Protection
-- **Local Processing**: Sensitive data stays on device
-- **Minimal Web Queries**: Only essential information searched
-- **Data Encryption**: Secure storage of automation plans
-- **User Consent**: Clear permission requests
-
-### Safety Measures
-- **Action Validation**: Confirm dangerous operations
-- **Rollback Capability**: Undo automation changes
-- **Rate Limiting**: Prevent system overload
-- **Sandboxing**: Isolate automation processes
+- Test with real applications (System Settings, Calculator)
+- Test with different system states (low battery, high CPU)
+- Test learning and memory functionality
 
 ## Future Enhancements
 
-### Advanced AI Features
-- **Predictive Automation**: Anticipate user needs
-- **Learning System**: Improve from user interactions
-- **Natural Language Interface**: Voice command automation
-- **Multi-Modal Input**: Combine voice, gesture, and text
+### Planned Features
 
-### Integration Capabilities
-- **Cross-Platform**: Extend to Windows, Linux
-- **Cloud Integration**: Sync automation across devices
-- **API Access**: Third-party automation integration
-- **Workflow Orchestration**: Complex multi-step automations
+- Web search integration for external knowledge
+- Advanced learning algorithms
+- Multi-agent coordination
+- Custom action types
+- Enhanced error recovery
 
-This architecture provides a foundation for intelligent, context-aware UI automation that can adapt to user needs and system conditions while maintaining security and privacy.
+### Scalability Considerations
+
+- Distributed memory systems
+- Cloud-based reasoning
+- Real-time collaboration
+- Performance monitoring
+
+## Security Considerations
+
+### API Key Management
+
+- Store `GEMINI_API_KEY` in `.env` file
+- Never commit API keys to version control
+- Use environment-specific configurations
+
+### Accessibility Permissions
+
+- Require explicit user permission for accessibility APIs
+- Handle permission errors gracefully
+- Provide clear setup instructions
+
+### Data Privacy
+
+- Memory export/import for data portability
+- No external data transmission except to Gemini
+- Local processing of all UI interactions
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Element not found**: Check element finding strategies, verify element exists
+2. **Gemini errors**: Verify API key, check network connectivity
+3. **Permission errors**: Grant accessibility permissions to terminal/IDE
+4. **Performance issues**: Check element limits, optimize scanning
+
+### Debug Tools
+
+- `debug_gemini_prompt.py`: Inspect Gemini input/output
+- `test_agent.py`: Run comprehensive tests
+- Memory export for analysis
+- Detailed logging throughout system
+
+## Conclusion
+
+This architecture represents a complete reimplementation of the agent system with all critical issues resolved. The modular design ensures maintainability, the robust error handling ensures reliability, and the intelligent reasoning ensures effectiveness. The system is now ready for production use with autonomous UI automation capabilities.
