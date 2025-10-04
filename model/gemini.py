@@ -20,7 +20,7 @@ class BrowserScreenshotAnalyzer:
     
     def __init__(self):
         """Initialize the analyzer with Gemini API configuration."""
-        self.api_key = "AIzaSyCbJzQUnl71680tsHhN9DMz83T8R0SHJmg"
+        self.api_key = "your_api_key_here"
         
         genai.configure(api_key=self.api_key)
         self.model = genai.GenerativeModel('gemini-2.0-flash-exp')
