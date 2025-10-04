@@ -42,16 +42,40 @@ class MemorySystem:
         self.memory_counter = 0
         self.learning_enabled = True
 
-    def store_perception(self, perception_data: Dict[str, Any]) -> str:
-        """Store perception data in memory"""
+    def store_perception(self, perception_data: Dict[str, Any] = None, **kwargs) -> str:
+        """
+        Store perception data in memory with support for hybrid perception.
+
+        Args:
+            perception_data: Complete perception data dictionary (legacy support)
+            **kwargs: Individual perception components (ui_signals, system_state, etc.)
+
+        Returns:
+            Memory ID for the stored perception
+        """
         memory_id = f"perception_{self.memory_counter}_{int(time.time())}"
+
+        # Handle both legacy and new hybrid perception formats
+        if perception_data is not None:
+            # Legacy format - single dictionary
+            content = perception_data
+        else:
+            # New hybrid format - individual components
+            content = {
+                "ui_signals": kwargs.get("ui_signals", []),
+                "system_state": kwargs.get("system_state"),
+                "context": kwargs.get("context", {}),
+                "visual_analysis": kwargs.get("visual_analysis"),
+                "correlations": kwargs.get("correlations"),
+                "timestamp": kwargs.get("timestamp", time.time()),
+            }
 
         entry = MemoryEntry(
             id=memory_id,
             type="perception",
-            content=perception_data,
+            content=content,
             timestamp=time.time(),
-            importance=self._calculate_importance(perception_data),
+            importance=self._calculate_importance(content),
         )
 
         self.perceptions.append(entry)

@@ -40,6 +40,8 @@ class ReasoningEngine:
         self.model = None
         self._setup_gemini()
         self.reasoning_history = []
+        self.long_range_plan = None
+        self.plan_created = False
 
     def _setup_gemini(self):
         """Setup Gemini API for reasoning"""
@@ -56,6 +58,85 @@ class ReasoningEngine:
         except Exception as e:
             print(f"   ❌ Error setting up Gemini: {e}")
             return False
+
+    def create_long_range_plan(
+        self,
+        goal: str,
+        target_app: str,
+        ui_signals: List[Dict[str, Any]],
+        system_state: Any,
+    ) -> Dict[str, Any]:
+        """Create a comprehensive long-range plan for achieving the goal"""
+        if not self.model:
+            return {"error": "Gemini not configured"}
+
+        try:
+            print("   🎯 Creating long-range plan...")
+
+            # Build the planning prompt
+            planning_prompt = f"""
+            You are an AI planning expert. Create a comprehensive, step-by-step plan to achieve the user's goal.
+            
+            GOAL: {goal}
+            TARGET APP: {target_app}
+            
+            CURRENT ENVIRONMENT:
+            - Available UI Elements: {len(ui_signals)}
+            - System State: {system_state}
+            
+            AVAILABLE UI ELEMENTS:
+            {self._format_ui_elements(ui_signals)}
+            
+            SYSTEM STATE:
+            {self._format_system_state(system_state)}
+            
+            Create a detailed plan that:
+            1. Breaks down the goal into clear, actionable steps
+            2. Identifies the end state/success criteria
+            3. Considers potential obstacles and alternatives
+            4. Provides a clear sequence of actions
+            5. Defines what "success" looks like
+            
+            Respond with JSON:
+            {{
+                "goal": "The original user goal",
+                "end_state": "Clear description of what success looks like",
+                "success_criteria": ["Specific criteria that indicate goal achievement"],
+                "steps": [
+                    {{"step": 1, "action": "action_type", "description": "what to do", "expected_outcome": "what should happen"}},
+                    {{"step": 2, "action": "action_type", "description": "what to do", "expected_outcome": "what should happen"}},
+                    ...
+                ],
+                "obstacles": ["Potential issues that might arise"],
+                "alternatives": ["Alternative approaches if main plan fails"],
+                "completion_indicators": ["Signs that the goal has been achieved"]
+            }}
+            """
+
+            response = self.model.generate_content(planning_prompt)
+            plan_text = response.text.strip()
+
+            # Parse the JSON response
+            try:
+                import re
+
+                json_match = re.search(r"\{.*\}", plan_text, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group()
+                    plan = json.loads(json_str)
+                    self.long_range_plan = plan
+                    self.plan_created = True
+                    print(
+                        f"   ✅ Long-range plan created with {len(plan.get('steps', []))} steps"
+                    )
+                    return plan
+                else:
+                    return {"error": "Could not parse plan JSON"}
+            except Exception as e:
+                return {"error": f"Plan parsing failed: {e}"}
+
+        except Exception as e:
+            return {"error": f"Plan creation failed: {e}"}
 
     def gather_knowledge(self, goal: str, perception: Dict[str, Any]) -> Dict[str, Any]:
         """Gather relevant knowledge for the goal"""
@@ -138,30 +219,59 @@ class ReasoningEngine:
         knowledge: Dict[str, Any],
         agent_state: Any,
     ) -> str:
-        """Build comprehensive prompt for reasoning"""
+        """
+        Build comprehensive reasoning prompt with hybrid accessibility + visual data.
+
+        This method creates a detailed prompt that includes both traditional accessibility
+        API data and visual language model analysis for enhanced decision-making.
+
+        Args:
+            goal: User's goal to achieve
+            perception: Hybrid perception data including accessibility and visual elements
+            knowledge: Domain knowledge and best practices
+            agent_state: Current agent state information
+
+        Returns:
+            Formatted prompt string for Gemini reasoning
+        """
 
         ui_signals = perception.get("ui_signals", [])
         system_state = perception.get("system_state", {})
+        visual_analysis = perception.get("visual_analysis")
+        correlations = perception.get("correlations")
 
         return f"""
-        You are an autonomous AI agent that can interact with any application or system to achieve goals.
+        You are an autonomous AI agent with hybrid perception capabilities that can interact 
+        with any application or system to achieve goals using both accessibility APIs and 
+        visual analysis.
         
         GOAL: {goal}
         
         CURRENT ENVIRONMENT:
-        - Available UI Elements: {len(ui_signals)}
+        - Accessibility UI Elements: {len(ui_signals)}
+        - Visual Elements: {len(visual_analysis.interactive_elements) if visual_analysis else 0}
+        - Correlated Elements: {correlations.get('matched_elements', 0) if correlations else 0}
         - System State: {system_state}
         - Progress: {agent_state.progress:.2f}
         - Errors: {agent_state.error_count}
         
-        AVAILABLE UI ELEMENTS:
+        ACCESSIBILITY UI ELEMENTS (Use these exact IDs):
         {self._format_ui_elements(ui_signals)}
+        
+        VISUAL ANALYSIS:
+        {self._format_visual_analysis(visual_analysis)}
+        
+        ELEMENT CORRELATIONS:
+        {self._format_correlations(correlations)}
         
         SYSTEM STATE:
         {self._format_system_state(system_state)}
         
         CONTEXT:
         {self._format_knowledge(knowledge)}
+        
+        LONG-RANGE PLAN:
+        {self._format_long_range_plan()}
         
         Analyze the situation and create a plan to achieve the goal. Use the exact element IDs provided.
         Consider what actions are needed, which elements to use, potential risks, and alternatives.
@@ -281,6 +391,154 @@ class ReasoningEngine:
               Title: {element.get('title', '')}
             """
             )
+        return "\n".join(formatted)
+
+    def _format_long_range_plan(self) -> str:
+        """Format the long-range plan for the prompt"""
+        if not self.long_range_plan:
+            return "No long-range plan available yet."
+
+        plan = self.long_range_plan
+        formatted = []
+
+        formatted.append(f"ORIGINAL GOAL: {plan.get('goal', 'Unknown')}")
+        formatted.append(f"END STATE: {plan.get('end_state', 'Not defined')}")
+        formatted.append("")
+
+        # Success criteria
+        criteria = plan.get("success_criteria", [])
+        if criteria:
+            formatted.append("SUCCESS CRITERIA:")
+            for criterion in criteria:
+                formatted.append(f"- {criterion}")
+            formatted.append("")
+
+        # Steps
+        steps = plan.get("steps", [])
+        if steps:
+            formatted.append("PLANNED STEPS:")
+            for step in steps:
+                step_num = step.get("step", "?")
+                action = step.get("action", "unknown")
+                description = step.get("description", "No description")
+                expected = step.get("expected_outcome", "No expected outcome")
+                formatted.append(f"{step_num}. {action.upper()}: {description}")
+                formatted.append(f"   Expected: {expected}")
+            formatted.append("")
+
+        # Obstacles
+        obstacles = plan.get("obstacles", [])
+        if obstacles:
+            formatted.append("POTENTIAL OBSTACLES:")
+            for obstacle in obstacles:
+                formatted.append(f"- {obstacle}")
+            formatted.append("")
+
+        # Completion indicators
+        indicators = plan.get("completion_indicators", [])
+        if indicators:
+            formatted.append("COMPLETION INDICATORS:")
+            for indicator in indicators:
+                formatted.append(f"- {indicator}")
+
+        return "\n".join(formatted)
+
+    def _format_visual_analysis(self, visual_analysis) -> str:
+        """
+        Format visual analysis data for the reasoning prompt.
+
+        Args:
+            visual_analysis: VisualAnalysis object or None
+
+        Returns:
+            Formatted string describing visual elements and analysis
+        """
+        if not visual_analysis:
+            return "No visual analysis available"
+
+        formatted = []
+        formatted.append(f"Screen Description: {visual_analysis.screen_description}")
+        formatted.append("")
+
+        if visual_analysis.interactive_elements:
+            formatted.append(
+                f"Visual Interactive Elements ({len(visual_analysis.interactive_elements)}):"
+            )
+            for i, element in enumerate(visual_analysis.interactive_elements, 1):
+                formatted.append(f"  {i}. {element.type.upper()}")
+                formatted.append(f"     Position: {element.position}")
+                formatted.append(f"     Text: {element.text}")
+                formatted.append(f"     Purpose: {element.purpose}")
+                formatted.append(f"     Characteristics: {element.characteristics}")
+                if element.task_relevant:
+                    formatted.append(f"     🎯 TASK-RELEVANT")
+                if element.coordinates:
+                    formatted.append(f"     Coordinates: {element.coordinates}")
+                formatted.append("")
+        else:
+            formatted.append("No visual interactive elements identified")
+
+        if visual_analysis.safety_warnings:
+            formatted.append("Visual Safety Warnings:")
+            for warning in visual_analysis.safety_warnings:
+                formatted.append(f"  ⚠️  {warning}")
+            formatted.append("")
+
+        if visual_analysis.alternative_methods:
+            formatted.append("Alternative Methods:")
+            for method in visual_analysis.alternative_methods:
+                formatted.append(f"  💡 {method}")
+
+        return "\n".join(formatted)
+
+    def _format_correlations(self, correlations) -> str:
+        """
+        Format element correlations between accessibility and visual data.
+
+        Args:
+            correlations: Correlation data or None
+
+        Returns:
+            Formatted string describing element correlations
+        """
+        if not correlations:
+            return "No element correlations available"
+
+        formatted = []
+        formatted.append(
+            f"Total Accessibility Elements: {correlations.get('total_ui_signals', 0)}"
+        )
+        formatted.append(
+            f"Total Visual Elements: {correlations.get('total_visual_elements', 0)}"
+        )
+        formatted.append(f"Matched Elements: {correlations.get('matched_elements', 0)}")
+        formatted.append("")
+
+        correlation_list = correlations.get("correlations", [])
+        if correlation_list:
+            formatted.append("Element Correlations:")
+            for i, correlation in enumerate(
+                correlation_list[:10], 1
+            ):  # Limit to 10 for readability
+                ui_signal = correlation.get("ui_signal", {})
+                visual_element = correlation.get("visual_element")
+                score = correlation.get("correlation_score", 0)
+
+                formatted.append(
+                    f"  {i}. Accessibility ID: {correlation.get('accessibility_id', 'Unknown')}"
+                )
+                formatted.append(
+                    f"     Visual Element: {visual_element.type if visual_element else 'Unknown'}"
+                )
+                formatted.append(f"     Correlation Score: {score}")
+                formatted.append(f"     UI Title: {ui_signal.get('title', 'No title')}")
+                formatted.append(
+                    f"     Visual Text: {visual_element.text if visual_element else 'No text'}"
+                )
+                formatted.append("")
+        else:
+            formatted.append("No element correlations found")
+
         return "\n".join(formatted)
 
     def _format_system_state(self, state: Any) -> str:

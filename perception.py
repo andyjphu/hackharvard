@@ -8,6 +8,18 @@ import psutil
 import atomacos as atomac
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
+import os
+import sys
+
+# Add model directory to path for VLM integration
+sys.path.append(os.path.join(os.path.dirname(__file__), "model"))
+try:
+    from model.gemini import BrowserScreenshotAnalyzer
+
+    VLM_AVAILABLE = True
+except ImportError:
+    VLM_AVAILABLE = False
+    print("   ⚠️  VLM not available - install model dependencies for visual analysis")
 
 
 @dataclass
@@ -39,6 +51,30 @@ class SystemState:
     cpu_usage: float
 
 
+@dataclass
+class VisualElement:
+    """Represents a visually identified UI element from VLM analysis"""
+
+    type: str
+    position: str
+    text: str
+    purpose: str
+    characteristics: str
+    task_relevant: bool = False
+    coordinates: Optional[Dict[str, int]] = None
+
+
+@dataclass
+class VisualAnalysis:
+    """Complete visual analysis from VLM"""
+
+    screen_description: str
+    interactive_elements: List[VisualElement]
+    safety_warnings: List[str]
+    alternative_methods: List[str]
+    task_context: str = ""
+
+
 class PerceptionEngine:
     """
     Handles all perception tasks:
@@ -51,6 +87,16 @@ class PerceptionEngine:
     def __init__(self):
         self.seen_elements = set()
         self.perception_history = []
+
+        # Initialize VLM if available
+        self.vlm_analyzer = None
+        if VLM_AVAILABLE:
+            try:
+                self.vlm_analyzer = BrowserScreenshotAnalyzer()
+                print("   ✅ VLM analyzer initialized for visual analysis")
+            except Exception as e:
+                print(f"   ⚠️  VLM initialization failed: {e}")
+                self.vlm_analyzer = None
 
     def _normalize_app_name(self, app_name: str) -> str:
         """Normalize app names to handle common variations"""
@@ -566,4 +612,157 @@ class PerceptionEngine:
             "elements_discovered": len(self.seen_elements),
             "perception_history_size": len(self.perception_history),
             "constraints": self.identify_constraints(),
+        }
+
+    def capture_visual_analysis(
+        self, target_app: str, goal: str = ""
+    ) -> Optional[VisualAnalysis]:
+        """Capture and analyze visual elements using VLM"""
+        if not self.vlm_analyzer:
+            return None
+
+        try:
+            print("   📸 Capturing visual analysis...")
+
+            # Capture screenshot
+            screenshot_path = self.vlm_analyzer.capture_screenshot()
+            if not screenshot_path:
+                print("   ❌ Failed to capture screenshot for VLM analysis")
+                return None
+
+            # Analyze with VLM
+            analysis_result = self.vlm_analyzer.analyze_screenshot(
+                screenshot_path, goal
+            )
+
+            if "error" in analysis_result:
+                print(f"   ❌ VLM analysis failed: {analysis_result['error']}")
+                return None
+
+            # Convert to our data structures
+            visual_elements = []
+            for element_data in analysis_result.get("interactive_elements", []):
+                visual_element = VisualElement(
+                    type=element_data.get("type", "unknown"),
+                    position=element_data.get("position", "unknown"),
+                    text=element_data.get("text", ""),
+                    purpose=element_data.get("purpose", ""),
+                    characteristics=element_data.get("characteristics", ""),
+                    task_relevant=element_data.get("task_relevant", False),
+                    coordinates=element_data.get("coordinates", {}),
+                )
+                visual_elements.append(visual_element)
+
+            visual_analysis = VisualAnalysis(
+                screen_description=analysis_result.get("screen_description", ""),
+                interactive_elements=visual_elements,
+                safety_warnings=analysis_result.get("safety_warnings", []),
+                alternative_methods=analysis_result.get("alternative_methods", []),
+                task_context=goal,
+            )
+
+            print(
+                f"   ✅ VLM analysis complete: {len(visual_elements)} visual elements"
+            )
+            return visual_analysis
+
+        except Exception as e:
+            print(f"   ❌ VLM analysis error: {e}")
+            return None
+
+    def correlate_accessibility_visual(
+        self, ui_signals: List[Dict], visual_analysis: VisualAnalysis
+    ) -> Dict[str, Any]:
+        """Correlate accessibility elements with visual elements"""
+        correlations = []
+
+        for ui_signal in ui_signals:
+            ui_pos = ui_signal.get("position", (0, 0))
+            ui_title = ui_signal.get("title", "").lower()
+            ui_type = ui_signal.get("type", "").lower()
+
+            best_match = None
+            best_score = 0
+
+            for visual_element in visual_analysis.interactive_elements:
+                # Calculate correlation score
+                score = 0
+
+                # Position correlation (if coordinates available)
+                if visual_element.coordinates:
+                    vis_x = visual_element.coordinates.get("click_x", 0)
+                    vis_y = visual_element.coordinates.get("click_y", 0)
+                    distance = (
+                        (ui_pos[0] - vis_x) ** 2 + (ui_pos[1] - vis_y) ** 2
+                    ) ** 0.5
+                    if distance < 50:  # Within 50 pixels
+                        score += 3
+
+                # Text correlation
+                if ui_title and visual_element.text:
+                    if (
+                        ui_title in visual_element.text.lower()
+                        or visual_element.text.lower() in ui_title
+                    ):
+                        score += 2
+
+                # Type correlation
+                if (
+                    ui_type in visual_element.type.lower()
+                    or visual_element.type.lower() in ui_type
+                ):
+                    score += 1
+
+                # Purpose correlation
+                if (
+                    ui_signal.get("description", "").lower()
+                    in visual_element.purpose.lower()
+                ):
+                    score += 1
+
+                if score > best_score:
+                    best_score = score
+                    best_match = visual_element
+
+            if best_match and best_score > 0:
+                correlations.append(
+                    {
+                        "accessibility_id": ui_signal.get("id"),
+                        "visual_element": best_match,
+                        "correlation_score": best_score,
+                        "ui_signal": ui_signal,
+                    }
+                )
+
+        return {
+            "correlations": correlations,
+            "total_ui_signals": len(ui_signals),
+            "total_visual_elements": len(visual_analysis.interactive_elements),
+            "matched_elements": len(correlations),
+        }
+
+    def get_hybrid_perception(self, target_app: str, goal: str = "") -> Dict[str, Any]:
+        """Get combined accessibility and visual perception data"""
+        print("   🔍 Gathering hybrid perception (accessibility + visual)...")
+
+        # Get accessibility data
+        ui_signals = self.discover_ui_signals(target_app)
+        system_state = self.get_system_state()
+
+        # Get visual analysis
+        visual_analysis = self.capture_visual_analysis(target_app, goal)
+
+        # Correlate the two
+        correlations = None
+        if visual_analysis:
+            correlations = self.correlate_accessibility_visual(
+                ui_signals, visual_analysis
+            )
+
+        return {
+            "ui_signals": ui_signals,
+            "system_state": system_state,
+            "visual_analysis": visual_analysis,
+            "correlations": correlations,
+            "perception_type": "hybrid" if visual_analysis else "accessibility_only",
         }

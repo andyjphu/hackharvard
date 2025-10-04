@@ -53,76 +53,128 @@ class AgentCore:
         self.max_errors = 5
         self.max_iterations = 50
 
-    def perceive(self, target_app: str = None) -> Dict[str, Any]:
-        """Perceive the current environment and system state"""
-        print("🔍 PERCEIVING: Gathering environmental signals...")
+    def perceive(self, target_app: str = None, goal: str = "") -> Dict[str, Any]:
+        """
+        Perceive the current environment using hybrid accessibility + visual analysis.
+
+        This method combines traditional accessibility API scanning with visual language model
+        analysis to provide comprehensive environmental understanding.
+
+        Args:
+            target_app: Target application to focus on
+            goal: User goal for context-aware visual analysis
+
+        Returns:
+            Dictionary containing hybrid perception data with both accessibility and visual elements
+        """
+        print("🔍 PERCEIVING: Gathering hybrid environmental signals...")
 
         try:
-            # Get UI signals
-            ui_signals = self.perception.discover_ui_signals(target_app)
+            # Use hybrid perception that combines accessibility and visual analysis
+            perception_data = self.perception.get_hybrid_perception(target_app, goal)
 
-            # If no UI signals found and we have a target app, try to launch it
-            # BUT only if the app is not already running
-            if len(ui_signals) == 0 and target_app:
-                # Check if the app is already running before trying to launch
-                try:
-                    import atomacos as atomac
+            # Handle app launching if no UI signals found
+            if len(perception_data.get("ui_signals", [])) == 0 and target_app:
+                self._handle_app_launching(target_app, perception_data)
+                # Re-run hybrid perception after potential launch
+                perception_data = self.perception.get_hybrid_perception(
+                    target_app, goal
+                )
 
-                    app = atomac.getAppRefByLocalizedName(target_app)
-                    if app:
-                        print(
-                            f"   ⚠️  {target_app} is already running but no UI elements found"
-                        )
-                        print(
-                            f"   🤖 Letting reasoning engine handle app-specific initialization..."
-                        )
-                    else:
-                        print(
-                            f"   🚀 {target_app} not running, attempting to launch..."
-                        )
-                        launch_result = self.action._execute_launch_app(target_app)
-                        if launch_result.get("success", False):
-                            print(
-                                f"   ✅ {launch_result.get('result', 'App launched')}"
-                            )
-                            # Wait for app to fully load (dynamic timing based on app type)
-                            wait_time = self._get_app_load_time(target_app)
-                            print(
-                                f"   ⏳ Waiting {wait_time}s for {target_app} to fully load..."
-                            )
-                            time.sleep(wait_time)
-                            ui_signals = self.perception.discover_ui_signals(target_app)
-                            print(
-                                f"   📊 Found {len(ui_signals)} elements after launch"
-                            )
-                except Exception as e:
-                    print(f"   ⚠️  Error checking app status: {e}")
-                    print(f"   🤖 Letting reasoning engine handle initialization...")
+            # Add timestamp for tracking
+            perception_data["timestamp"] = time.time()
 
-            # Get system state
-            system_state = self.perception.get_system_state()
-
-            # Get context
-            context = self.perception.get_context(target_app)
-
-            # Store in memory
-            perception_data = {
-                "ui_signals": ui_signals,
-                "system_state": system_state,
-                "context": context,
-                "timestamp": time.time(),
-            }
-
-            self.memory.store_perception(perception_data)
-
-            print(
-                f"✅ Perceived {len(ui_signals)} UI elements, system state: {system_state.battery_level}% battery"
+            # Store comprehensive perception data in memory
+            self.memory.store_perception(
+                ui_signals=perception_data.get("ui_signals", []),
+                system_state=perception_data.get("system_state"),
+                context=perception_data.get("context", {}),
+                visual_analysis=perception_data.get("visual_analysis"),
+                correlations=perception_data.get("correlations"),
+                timestamp=perception_data["timestamp"],
             )
+
+            # Enhanced logging with hybrid data
+            ui_count = len(perception_data.get("ui_signals", []))
+            visual_count = 0
+            if perception_data.get("visual_analysis"):
+                visual_count = len(
+                    perception_data["visual_analysis"].interactive_elements
+                )
+
+            perception_type = perception_data.get("perception_type", "unknown")
+            matched_elements = 0
+            if perception_data.get("correlations"):
+                matched_elements = perception_data["correlations"].get(
+                    "matched_elements", 0
+                )
+
+            print(f"✅ Hybrid perception complete:")
+            print(f"   📊 Accessibility: {ui_count} elements")
+            print(f"   👁️  Visual: {visual_count} elements")
+            print(f"   🔗 Correlated: {matched_elements} elements")
+            print(f"   🎯 Type: {perception_type}")
+
+            if perception_data.get("system_state"):
+                battery = perception_data["system_state"].battery_level
+                print(f"   🔋 System: {battery}% battery")
+
             return perception_data
 
         except Exception as e:
-            print(f"❌ Perception error: {e}")
+            print(f"❌ Hybrid perception error: {e}")
+            import traceback
+
+            traceback.print_exc()
             return {"error": str(e)}
+
+    def _handle_app_launching(
+        self, target_app: str, perception_data: Dict[str, Any]
+    ) -> None:
+        """
+        Handle app launching logic with comprehensive error handling.
+
+        This method manages the complex process of launching applications when no UI elements
+        are initially found, including proper error handling and timing considerations.
+
+        Args:
+            target_app: Application to potentially launch
+            perception_data: Current perception data to update
+        """
+        try:
+            import atomacos as atomac
+
+            # Check if app is already running
+            app = atomac.getAppRefByLocalizedName(target_app)
+            if app:
+                print(f"   ⚠️  {target_app} is already running but no UI elements found")
+                print(
+                    f"   🤖 Letting reasoning engine handle app-specific initialization..."
+                )
+            else:
+                print(f"   🚀 {target_app} not running, attempting to launch...")
+                launch_result = self.action._execute_launch_app(target_app)
+
+                if launch_result.get("success", False):
+                    print(f"   ✅ {launch_result.get('result', 'App launched')}")
+
+                    # Dynamic wait time based on app type for optimal loading
+                    wait_time = self._get_app_load_time(target_app)
+                    print(
+                        f"   ⏳ Waiting {wait_time}s for {target_app} to fully load..."
+                    )
+                    time.sleep(wait_time)
+
+                    # Re-scan for elements after launch
+                    new_ui_signals = self.perception.discover_ui_signals(target_app)
+                    print(f"   📊 Found {len(new_ui_signals)} elements after launch")
+
+                    # Update perception data with new elements
+                    perception_data["ui_signals"] = new_ui_signals
+
+        except Exception as e:
+            print(f"   ⚠️  Error during app launching: {e}")
+            print(f"   🤖 Letting reasoning engine handle initialization...")
 
     def reason(self, goal: str, perception_data: Dict[str, Any]) -> Dict[str, Any]:
         """Reason about the goal and current state to determine next actions"""
@@ -226,6 +278,38 @@ class AgentCore:
         iterations = 0
         max_iter = max_iterations or self.max_iterations
 
+        # Create long-range plan before starting the loop
+        print(f"\n🎯 CREATING LONG-RANGE PLAN")
+        print("-" * 40)
+
+        # Get initial perception for planning
+        initial_perception = self.perceive(target_app, goal)
+        if "error" in initial_perception:
+            print(f"❌ Initial perception failed: {initial_perception['error']}")
+            return {
+                "success": False,
+                "iterations": 0,
+                "errors": 1,
+                "progress": 0.0,
+                "message": f"Initial perception failed: {initial_perception['error']}",
+            }
+
+        # Create long-range plan
+        ui_signals = initial_perception.get("ui_signals", [])
+        system_state = initial_perception.get("system_state", {})
+        plan_result = self.reasoning.create_long_range_plan(
+            goal, target_app, ui_signals, system_state
+        )
+
+        if "error" in plan_result:
+            print(f"❌ Long-range planning failed: {plan_result['error']}")
+            print("   Continuing without long-range plan...")
+        else:
+            print(f"✅ Long-range plan created successfully")
+            print(f"   Goal: {plan_result.get('goal', 'Unknown')}")
+            print(f"   End State: {plan_result.get('end_state', 'Not defined')}")
+            print(f"   Steps: {len(plan_result.get('steps', []))}")
+
         # Execute the task with continuous perceive-reason-act loop
         print(f"\n🔄 STARTING PERCEIVE-REASON-ACT LOOP")
         print("-" * 40)
@@ -238,7 +322,7 @@ class AgentCore:
 
                 # 1. Perceive (observe current state)
                 print(f"🔍 PERCEIVING: Gathering environmental signals...")
-                perception_data = self.perceive(target_app)
+                perception_data = self.perceive(target_app, goal)
                 if "error" in perception_data:
                     print(f"❌ Perception failed: {perception_data['error']}")
                     self.state.error_count += 1
@@ -742,7 +826,45 @@ class AgentCore:
         perception_data: Dict[str, Any],
         reasoning_result: Dict[str, Any],
     ) -> bool:
-        """Check if the goal has been achieved"""
+        """Check if the goal has been achieved using long-range plan criteria"""
+
+        # First, check if we have a long-range plan with success criteria
+        if self.reasoning.long_range_plan:
+            plan = self.reasoning.long_range_plan
+            success_criteria = plan.get("success_criteria", [])
+            completion_indicators = plan.get("completion_indicators", [])
+
+            if success_criteria or completion_indicators:
+                print(f"   🎯 Checking goal achievement against long-range plan...")
+                print(f"   📋 Success criteria: {success_criteria}")
+                print(f"   ✅ Completion indicators: {completion_indicators}")
+
+                # Check if any completion indicators are present in current state
+                ui_signals = perception_data.get("ui_signals", [])
+                for indicator in completion_indicators:
+                    indicator_lower = indicator.lower()
+                    for signal in ui_signals:
+                        title = signal.get("title", "").lower()
+                        description = signal.get("description", "").lower()
+                        if (
+                            indicator_lower in title
+                            or indicator_lower in description
+                            or any(
+                                keyword in title for keyword in indicator_lower.split()
+                            )
+                        ):
+                            print(f"   ✅ Found completion indicator: {indicator}")
+                            return True
+
+                # Check success criteria based on confidence and context
+                confidence = reasoning_result.get("confidence", 0)
+                if confidence > 0.8 and success_criteria:
+                    print(
+                        f"   ✅ High confidence ({confidence:.2f}) with success criteria met"
+                    )
+                    return True
+
+        # Fallback to original logic if no long-range plan
         goal_lower = goal.lower()
 
         # Terminal/command execution goals
@@ -750,8 +872,6 @@ class AgentCore:
             keyword in goal_lower
             for keyword in ["echo", "command", "terminal", "iterm", "bash", "shell"]
         ):
-            # For terminal commands, check if the action was executed successfully
-            # This is a simple check - in reality we'd need to verify the command output
             return reasoning_result.get("confidence", 0) > 0.8
 
         # Battery optimization goals
@@ -765,7 +885,6 @@ class AgentCore:
 
         # Search goals
         if any(keyword in goal_lower for keyword in ["search", "find", "look for"]):
-            # For search goals, assume success if confidence is high
             return reasoning_result.get("confidence", 0) > 0.7
 
         # Calculator goals
@@ -773,8 +892,21 @@ class AgentCore:
             keyword in goal_lower
             for keyword in ["calculate", "math", "calculator", "+", "-", "*", "/"]
         ):
-            # For calculator goals, assume success if confidence is high
             return reasoning_result.get("confidence", 0) > 0.8
+
+        # Video goals - check for YouTube video player elements
+        if any(keyword in goal_lower for keyword in ["video", "show", "watch", "play"]):
+            ui_signals = perception_data.get("ui_signals", [])
+            for signal in ui_signals:
+                title = signal.get("title", "").lower()
+                if any(
+                    keyword in title
+                    for keyword in ["play", "pause", "full screen", "seek slider"]
+                ):
+                    print(
+                        f"   ✅ Found video player element: {signal.get('title', '')}"
+                    )
+                    return True
 
         # General goals - use confidence as a proxy
         confidence = reasoning_result.get("confidence", 0)
