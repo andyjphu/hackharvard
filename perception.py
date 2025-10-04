@@ -100,6 +100,7 @@ class PerceptionEngine:
                 windows = [
                     w for w in app.windows() if getattr(w, "AXRole", None) == "AXWindow"
                 ]
+                print(f"   📊 Found {len(windows)} windows for {normalized_app_name}")
             else:
                 # Get all applications dynamically
                 windows = []

@@ -62,27 +62,42 @@ class AgentCore:
             ui_signals = self.perception.discover_ui_signals(target_app)
 
             # If no UI signals found and we have a target app, try to launch it
+            # BUT only if the app is not already running
             if len(ui_signals) == 0 and target_app:
-                print(
-                    f"   🚀 No UI elements found, attempting to launch {target_app}..."
-                )
-                launch_result = self.action._execute_launch_app(target_app)
-                if launch_result.get("success", False):
-                    print(f"   ✅ {launch_result.get('result', 'App launched')}")
-                    # Wait for app to fully load (dynamic timing based on app type)
-                    wait_time = self._get_app_load_time(target_app)
-                    print(
-                        f"   ⏳ Waiting {wait_time}s for {target_app} to fully load..."
-                    )
-                    time.sleep(wait_time)
-                    ui_signals = self.perception.discover_ui_signals(target_app)
-                    print(f"   📊 Found {len(ui_signals)} elements after launch")
+                # Check if the app is already running before trying to launch
+                try:
+                    import atomacos as atomac
 
-                    # If still no elements found, let the reasoning engine handle app-specific initialization
-                    if len(ui_signals) == 0:
+                    app = atomac.getAppRefByLocalizedName(target_app)
+                    if app:
                         print(
-                            "   🤖 No elements found - letting reasoning engine handle initialization..."
+                            f"   ⚠️  {target_app} is already running but no UI elements found"
                         )
+                        print(
+                            f"   🤖 Letting reasoning engine handle app-specific initialization..."
+                        )
+                    else:
+                        print(
+                            f"   🚀 {target_app} not running, attempting to launch..."
+                        )
+                        launch_result = self.action._execute_launch_app(target_app)
+                        if launch_result.get("success", False):
+                            print(
+                                f"   ✅ {launch_result.get('result', 'App launched')}"
+                            )
+                            # Wait for app to fully load (dynamic timing based on app type)
+                            wait_time = self._get_app_load_time(target_app)
+                            print(
+                                f"   ⏳ Waiting {wait_time}s for {target_app} to fully load..."
+                            )
+                            time.sleep(wait_time)
+                            ui_signals = self.perception.discover_ui_signals(target_app)
+                            print(
+                                f"   📊 Found {len(ui_signals)} elements after launch"
+                            )
+                except Exception as e:
+                    print(f"   ⚠️  Error checking app status: {e}")
+                    print(f"   🤖 Letting reasoning engine handle initialization...")
 
             # Get system state
             system_state = self.perception.get_system_state()
@@ -211,57 +226,100 @@ class AgentCore:
         iterations = 0
         max_iter = max_iterations or self.max_iterations
 
-        # Execute the task directly - no iterations needed
-        print(f"\n🎯 EXECUTING TASK DIRECTLY")
+        # Execute the task with continuous perceive-reason-act loop
+        print(f"\n🔄 STARTING PERCEIVE-REASON-ACT LOOP")
         print("-" * 40)
 
         try:
-            # 1. Perceive
-            perception_data = self.perceive(target_app)
-            if "error" in perception_data:
-                print(f"❌ Perception failed: {perception_data['error']}")
-                return
+            while iterations < max_iter and self.state.error_count < self.max_errors:
+                iterations += 1
+                print(f"\n🔄 ITERATION {iterations}/{max_iter}")
+                print("=" * 50)
 
-            # 2. Reason
-            reasoning_result = self.reason(goal, perception_data)
-            if "error" in reasoning_result:
-                print(f"❌ Reasoning failed: {reasoning_result['error']}")
-                return
+                # 1. Perceive (observe current state)
+                print(f"🔍 PERCEIVING: Gathering environmental signals...")
+                perception_data = self.perceive(target_app)
+                if "error" in perception_data:
+                    print(f"❌ Perception failed: {perception_data['error']}")
+                    self.state.error_count += 1
+                    continue
 
-            # 3. Act
-            print(f"🎯 EXECUTING ACTIONS...")
-            action_result = self.act(reasoning_result)
-            if not action_result.get("success", False):
-                print(
-                    f"❌ Actions failed: {action_result.get('error', 'Unknown error')}"
+                # 2. Reason (plan next action based on current state)
+                print(f"🧠 REASONING: Analyzing goal and current state...")
+                reasoning_result = self.reason(goal, perception_data)
+                if "error" in reasoning_result:
+                    print(f"❌ Reasoning failed: {reasoning_result['error']}")
+                    self.state.error_count += 1
+                    continue
+
+                # 3. Act (execute one action)
+                print(f"🎯 ACTING: Executing planned action...")
+                action_result = self.act(reasoning_result)
+                if not action_result.get("success", False):
+                    print(
+                        f"❌ Action failed: {action_result.get('error', 'Unknown error')}"
+                    )
+                    print(
+                        f"   Error count: {self.state.error_count + 1}/{self.max_errors}"
+                    )
+                    self.state.error_count += 1
+                    # Don't check goal achievement if action failed
+                    continue
+                else:
+                    print(f"✅ Action completed successfully")
+                    self.state.error_count = 0  # Reset on success
+
+                # Only check goal achievement if action succeeded
+                goal_achieved = self._is_goal_achieved(
+                    goal, perception_data, reasoning_result
                 )
-                print(f"   Error count: {self.state.error_count + 1}/{self.max_errors}")
-                self.state.error_count += 1
-            else:
-                print(f"✅ Actions completed successfully")
-                self.state.error_count = 0  # Reset on success
+                if goal_achieved:
+                    print(f"🎉 GOAL ACHIEVED: {goal}")
+                    return {
+                        "success": True,
+                        "iterations": iterations,
+                        "errors": self.state.error_count,
+                        "progress": 1.0,
+                        "message": f"Goal achieved: {goal}",
+                    }
 
-            # Check if goal is achieved
-            if self._is_goal_achieved(goal, perception_data, reasoning_result):
-                print(f"🎉 GOAL ACHIEVED: {goal}")
-                return
+                # Check confidence (only stop if very low confidence)
+                confidence = reasoning_result.get("confidence", 0)
+                if confidence < 0.1:  # Only stop if confidence is extremely low
+                    print(
+                        f"⚠️  Very low confidence ({confidence:.2f}), stopping to prevent errors"
+                    )
+                    return
+                elif confidence < 0.3:
+                    print(f"⚠️  Low confidence ({confidence:.2f}), but continuing...")
 
-            # Check confidence (only stop if very low confidence)
-            confidence = reasoning_result.get("confidence", 0)
-            if confidence < 0.1:  # Only stop if confidence is extremely low
+                # Debug: Show why agent continues
                 print(
-                    f"⚠️  Very low confidence ({confidence:.2f}), stopping to prevent errors"
+                    f"🔄 Continuing loop: goal_achieved={goal_achieved}, confidence={confidence:.2f}, errors={self.state.error_count}/{self.max_errors}"
                 )
-                return
-            elif confidence < 0.3:
-                print(f"⚠️  Low confidence ({confidence:.2f}), but continuing...")
+
+                # Brief pause between iterations
+                time.sleep(1)
 
         except KeyboardInterrupt:
             print("\n⏹️  Agent stopped by user")
-            return
+            return {
+                "success": False,
+                "iterations": iterations,
+                "errors": self.state.error_count,
+                "progress": self.state.progress,
+                "message": "Stopped by user",
+            }
         except Exception as e:
             print(f"❌ Unexpected error: {e}")
             self.state.error_count += 1
+            return {
+                "success": False,
+                "iterations": iterations,
+                "errors": self.state.error_count,
+                "progress": self.state.progress,
+                "message": f"Unexpected error: {e}",
+            }
 
         print(f"\n🏁 AGENT FINISHED")
         print(f"   Iterations: {iterations}")
@@ -685,17 +743,43 @@ class AgentCore:
         reasoning_result: Dict[str, Any],
     ) -> bool:
         """Check if the goal has been achieved"""
-        # Simple goal achievement checking
-        # In a real system, this would be more sophisticated
+        goal_lower = goal.lower()
 
-        if "battery" in goal.lower() and "optimize" in goal.lower():
-            # Check if Low Power Mode is enabled
+        # Terminal/command execution goals
+        if any(
+            keyword in goal_lower
+            for keyword in ["echo", "command", "terminal", "iterm", "bash", "shell"]
+        ):
+            # For terminal commands, check if the action was executed successfully
+            # This is a simple check - in reality we'd need to verify the command output
+            return reasoning_result.get("confidence", 0) > 0.8
+
+        # Battery optimization goals
+        if "battery" in goal_lower and "optimize" in goal_lower:
             ui_signals = perception_data.get("ui_signals", [])
             for signal in ui_signals:
                 if "low_power" in signal.get("id", "").lower():
                     current_value = signal.get("current_value", "")
                     if current_value.lower() in ["on", "always", "only on battery"]:
                         return True
+
+        # Search goals
+        if any(keyword in goal_lower for keyword in ["search", "find", "look for"]):
+            # For search goals, assume success if confidence is high
+            return reasoning_result.get("confidence", 0) > 0.7
+
+        # Calculator goals
+        if any(
+            keyword in goal_lower
+            for keyword in ["calculate", "math", "calculator", "+", "-", "*", "/"]
+        ):
+            # For calculator goals, assume success if confidence is high
+            return reasoning_result.get("confidence", 0) > 0.8
+
+        # General goals - use confidence as a proxy
+        confidence = reasoning_result.get("confidence", 0)
+        if confidence > 0.9:
+            return True
 
         return False
 
@@ -784,6 +868,16 @@ Examples:
             target_app=args.target_app,
             max_iterations=args.max_iterations,
         )
+
+        # Ensure result is not None
+        if result is None:
+            result = {
+                "success": False,
+                "iterations": 0,
+                "errors": agent.state.error_count,
+                "progress": 0.0,
+                "message": "Agent completed without returning result",
+            }
 
         # Save results if requested
         if args.save_results:

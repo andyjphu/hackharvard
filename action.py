@@ -126,18 +126,58 @@ class ActionEngine:
             }
 
     def _execute_click(self, target: str) -> Dict[str, Any]:
-        """Execute a click action"""
+        """Execute a click action with multiple fallback methods"""
         try:
+            # Handle "all" target for system-wide actions
+            if target == "all":
+                print(f"      ⚠️  Cannot click 'all' - this is not a valid click target")
+                return {
+                    "success": False,
+                    "error": "Cannot click 'all' - use keystroke action instead",
+                }
+
             # Find the target element
             element = self._find_element(target)
             if not element:
                 return {"success": False, "error": f"Element not found: {target}"}
 
-            # Click the element
-            element.AXPress()
-            time.sleep(0.5)  # Wait for action to complete
+            # Try multiple click methods
+            try:
+                # Method 1: Standard AXPress
+                element.AXPress()
+                return {"success": True, "result": f"Clicked {target}"}
 
-            return {"success": True, "result": f"Clicked {target}"}
+            except AttributeError:
+                # Try alternative click methods
+                if hasattr(element, "AXPerformAction"):
+                    element.AXPerformAction("AXPress")
+                    return {"success": True, "result": f"Performed action on {target}"}
+
+                # Try mouse click simulation
+                try:
+                    import subprocess
+
+                    pos = getattr(element, "AXPosition", None)
+                    if pos:
+                        # Use osascript to click at the element position
+                        subprocess.run(
+                            [
+                                "osascript",
+                                "-e",
+                                f'tell application "System Events" to click at {{{pos.x}, {pos.y}}}',
+                            ]
+                        )
+                        return {
+                            "success": True,
+                            "result": f"Clicked {target} at position ({pos.x}, {pos.y})",
+                        }
+                    else:
+                        return {
+                            "success": False,
+                            "error": f"Could not get position for {target}",
+                        }
+                except Exception as e:
+                    return {"success": False, "error": f"Click simulation failed: {e}"}
 
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -407,8 +447,29 @@ class ActionEngine:
         try:
             import subprocess
 
-            # Handle "all" target for terminal applications
+            # Handle "all" target for terminal applications and System Settings search
             if target == "all":
+                # Check if this is an app launch command
+                if text.lower().startswith("open ") or text.lower().startswith(
+                    "launch "
+                ):
+                    print(f"      🚀 App launch command: '{text}'")
+                    try:
+                        import subprocess
+
+                        # Extract app name from command
+                        app_name = (
+                            text.replace("open ", "").replace("launch ", "").strip()
+                        )
+                        subprocess.run(["open", "-a", app_name], check=True)
+                        time.sleep(2)  # Wait for app to launch
+                        return {"success": True, "result": f"Launched {app_name}"}
+                    except Exception as e:
+                        return {
+                            "success": False,
+                            "error": f"Failed to launch {app_name}: {e}",
+                        }
+
                 print(f"      ⌨️  System-wide keystroke: '{text}' + Enter")
 
                 # Clear any existing text (select all and delete)
@@ -582,11 +643,37 @@ class ActionEngine:
                 element.AXPress()
                 return {"success": True, "result": f"Pressed {target}"}
 
+            # Try alternative click methods
+            elif hasattr(element, "AXPerformAction"):
+                element.AXPerformAction("AXPress")
+                return {"success": True, "result": f"Performed action on {target}"}
+
+            # Try mouse click simulation
             else:
-                return {
-                    "success": False,
-                    "error": f"No suitable method for action: {action_type}",
-                }
+                try:
+                    import subprocess
+
+                    pos = getattr(element, "AXPosition", None)
+                    if pos:
+                        # Use osascript to click at the element position
+                        subprocess.run(
+                            [
+                                "osascript",
+                                "-e",
+                                f'tell application "System Events" to click at {{{pos.x}, {pos.y}}}',
+                            ]
+                        )
+                        return {
+                            "success": True,
+                            "result": f"Clicked {target} at position ({pos.x}, {pos.y})",
+                        }
+                    else:
+                        return {
+                            "success": False,
+                            "error": f"Could not get position for {target}",
+                        }
+                except Exception as e:
+                    return {"success": False, "error": f"Click simulation failed: {e}"}
 
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -704,14 +791,35 @@ class ActionEngine:
 
                         for window in windows:
                             # Try to find element by ID first (use findAllR for better compatibility)
-                            elements = window.findAllR(AXIdentifier=target)
-                            if elements:
-                                return elements[0]
+                            try:
+                                elements = window.findAllR(AXIdentifier=target)
+                                if elements:
+                                    return elements[0]
+                            except Exception as e:
+                                print(f"      ⚠️  AXIdentifier search failed: {e}")
+                                # Continue to other methods
 
                             # Try to find by title
-                            elements = window.findAllR(AXTitle=target)
-                            if elements:
-                                return elements[0]
+                            try:
+                                elements = window.findAllR(AXTitle=target)
+                                if elements:
+                                    return elements[0]
+                            except Exception as e:
+                                print(f"      ⚠️  AXTitle search failed: {e}")
+                                # Continue to other methods
+
+                            # Fallback: Manual element scanning for identifier-based IDs
+                            try:
+                                all_elements = window.findAllR()
+                                for elem in all_elements:
+                                    try:
+                                        identifier = getattr(elem, "AXIdentifier", "")
+                                        if identifier == target:
+                                            return elem
+                                    except:
+                                        continue
+                            except Exception as e:
+                                print(f"      ⚠️  Manual element scan failed: {e}")
 
                             # CRITICAL: Position-based element finding
                             if "_" in target and target.count("_") >= 2:

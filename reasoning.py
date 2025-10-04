@@ -166,6 +166,14 @@ class ReasoningEngine:
         Analyze the situation and create a plan to achieve the goal. Use the exact element IDs provided.
         Consider what actions are needed, which elements to use, potential risks, and alternatives.
         
+        CRITICAL: You MUST use ONLY the element IDs provided in the "AVAILABLE UI ELEMENTS" section above.
+        Do NOT create or invent your own element IDs like "WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD".
+        Look for elements with IDs like "AXTextField_802.5_43.0" or "AXButton_123.0_456.0".
+        If no suitable elements are available, use "all" as the target.
+        
+        IMPORTANT: Plan only ONE action at a time. The agent will observe the results and plan the next action.
+        Focus on the most immediate next step to make progress toward the goal.
+        
         NAVIGATION PREFERENCES:
         - Prefer "keystroke" action for search fields and text inputs (automatically presses Enter)
         - Use "type" action for general text input that doesn't need Enter
@@ -177,6 +185,12 @@ class ReasoningEngine:
         - Do NOT try to find specific UI elements in terminals
         - Terminal commands should be sent as system-wide keystrokes
         - Examples: "echo hello world", "ls", "cd /path", etc.
+        
+        SYSTEM SETTINGS SEARCH:
+        - Use "keystroke" action with target "all" for search queries
+        - Do NOT try to click individual settings buttons
+        - Let System Settings handle the search results automatically
+        - Examples: "battery saver", "low power mode", "display settings", etc.
         
         AVAILABLE ACTIONS:
         - "click": Click on a UI element (button, link, etc.)
@@ -195,7 +209,8 @@ class ReasoningEngine:
             "confidence": 0.0-1.0,
             "reasoning": "explanation of your approach",
             "alternatives": ["other approaches if needed"],
-            "risks": ["potential issues and mitigations"]
+            "risks": ["potential issues and mitigations"],
+            "next_step": "what to do after this action completes"
         }}
         """
 
