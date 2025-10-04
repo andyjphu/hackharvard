@@ -31,6 +31,7 @@ class BrowserScreenshotAnalyzer:
     def capture_screenshot(self, target_app: str = None) -> str:
         """
         Capture a screenshot of the focused window or specific app.
+        Always attempts to capture only the focused window, never falls back to full screen.
 
         Args:
             target_app: Target application name for focused window capture
@@ -39,62 +40,110 @@ class BrowserScreenshotAnalyzer:
             Path to the saved screenshot
         """
         try:
-            # Try to capture focused window first
+            # Always try to capture focused window first
             if target_app:
+                # Try multiple approaches to get the app and window
+                app = None
+                front_window = None
+
+                # Approach 1: Direct app lookup
                 try:
                     import atomacos as atomac
 
                     app = atomac.getAppRefByLocalizedName(target_app)
-                    if app:
-                        # Get the frontmost window of the target app
+                    print(f"   🎯 Found app: {target_app}")
+                except Exception as e:
+                    print(f"   ⚠️  Direct app lookup failed: {e}")
+
+                # Approach 2: Try with normalized app name
+                if not app:
+                    try:
+                        normalized_names = {
+                            "iTerm": "iTerm2",
+                            "iTerm2": "iTerm2",
+                            "Terminal": "Terminal",
+                            "Google Chrome": "Google Chrome",
+                            "Chrome": "Google Chrome",
+                            "Safari": "Safari",
+                            "Calculator": "Calculator",
+                            "System Settings": "System Settings",
+                            "System Preferences": "System Settings",
+                        }
+                        normalized_name = normalized_names.get(target_app, target_app)
+                        if normalized_name != target_app:
+                            app = atomac.getAppRefByLocalizedName(normalized_name)
+                            print(
+                                f"   🎯 Found app with normalized name: {normalized_name}"
+                            )
+                    except Exception as e:
+                        print(f"   ⚠️  Normalized app lookup failed: {e}")
+
+                # Approach 3: Try to get frontmost app if target app not found
+                if not app:
+                    try:
+                        frontmost_app = atomac.getFrontmostApp()
+                        if frontmost_app:
+                            app_name = getattr(frontmost_app, "AXTitle", "")
+                            if app_name:
+                                print(f"   🎯 Using frontmost app: {app_name}")
+                                app = frontmost_app
+                    except Exception as e:
+                        print(f"   ⚠️  Frontmost app lookup failed: {e}")
+
+                if app:
+                    # Get the frontmost window of the app
+                    try:
                         windows = app.windows()
                         if windows:
+                            # Find the frontmost window (usually the first one)
                             front_window = windows[0]
-                            # Get window bounds
-                            bounds = front_window.AXFrame
-                            if bounds:
-                                # Capture specific window area
-                                with mss.mss() as sct:
-                                    # Convert window bounds to monitor coordinates
-                                    monitor = {
-                                        "top": int(bounds.y),
-                                        "left": int(bounds.x),
-                                        "width": int(bounds.width),
-                                        "height": int(bounds.height),
-                                    }
+                            print(
+                                f"   📊 Found {len(windows)} windows, using frontmost"
+                            )
+                        else:
+                            print(f"   ⚠️  No windows found for app: {target_app}")
+                    except Exception as e:
+                        print(f"   ⚠️  Error getting windows: {e}")
 
-                                    screenshot = sct.grab(monitor)
-                                    mss.tools.to_png(
-                                        screenshot.rgb,
-                                        screenshot.size,
-                                        output=self.screenshot_path,
-                                    )
+                if front_window:
+                    try:
+                        # Get window bounds
+                        bounds = front_window.AXFrame
+                        if bounds:
+                            # Capture specific window area
+                            with mss.mss() as sct:
+                                # Convert window bounds to monitor coordinates
+                                monitor = {
+                                    "top": int(bounds.y),
+                                    "left": int(bounds.x),
+                                    "width": int(bounds.width),
+                                    "height": int(bounds.height),
+                                }
 
-                                    print(
-                                        f"✅ Focused window screenshot captured: {target_app}"
-                                    )
-                                    return self.screenshot_path
-                except Exception as e:
-                    print(f"   ⚠️  Focused window capture failed: {e}")
-                    print(f"   📸 Falling back to full screen capture...")
+                                screenshot = sct.grab(monitor)
+                                mss.tools.to_png(
+                                    screenshot.rgb,
+                                    screenshot.size,
+                                    output=self.screenshot_path,
+                                )
 
-            # Fallback to full screen capture
-            with mss.mss() as sct:
-                # Get primary monitor
-                monitor_info = sct.monitors[1]
+                                print(
+                                    f"✅ Focused window screenshot captured: {target_app} ({monitor['width']}x{monitor['height']})"
+                                )
+                                return self.screenshot_path
+                        else:
+                            print(f"   ⚠️  No window bounds available")
+                    except Exception as e:
+                        print(f"   ⚠️  Window bounds capture failed: {e}")
+                else:
+                    print(f"   ⚠️  No frontmost window found for app: {target_app}")
 
-                # Capture screenshot
-                screenshot = sct.grab(monitor_info)
-
-                # Save screenshot
-                mss.tools.to_png(
-                    screenshot.rgb, screenshot.size, output=self.screenshot_path
-                )
-
-                print(
-                    f"✅ Full screen screenshot captured and saved to: {self.screenshot_path}"
-                )
-                return self.screenshot_path
+            # If we get here, we couldn't capture the focused window
+            print(f"   ❌ Failed to capture focused window for: {target_app}")
+            print(
+                f"   💡 This is intentional - we only capture focused windows, not full screen"
+            )
+            return None
 
         except Exception as e:
             print(f"❌ Error capturing screenshot: {e}")
