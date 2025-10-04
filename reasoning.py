@@ -50,8 +50,8 @@ class ReasoningEngine:
                 return False
 
             genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel("gemini-2.5-pro")
-            print("   ✅ Gemini 2.5 Pro configured for intelligent reasoning")
+            self.model = genai.GenerativeModel("gemini-2.0-flash-exp")
+            print("   ✅ Gemini 2.0 Flash configured for intelligent reasoning")
             return True
         except Exception as e:
             print(f"   ❌ Error setting up Gemini: {e}")
@@ -166,9 +166,16 @@ class ReasoningEngine:
         Analyze the situation and create a plan to achieve the goal. Use the exact element IDs provided.
         Consider what actions are needed, which elements to use, potential risks, and alternatives.
         
+        NAVIGATION PREFERENCES:
+        - Prefer "keystroke" action for search fields and text inputs (automatically presses Enter)
+        - Use "type" action for general text input that doesn't need Enter
+        - Use "click" action for buttons, links, and interactive elements
+        - Keystroke navigation is often more reliable than clicking search buttons
+        
         AVAILABLE ACTIONS:
         - "click": Click on a UI element (button, link, etc.)
-        - "type": Type text into a text field
+        - "type": Type text into a text field (auto-presses Enter for search completion)
+        - "keystroke": Type text and automatically press Enter (preferred for search fields)
         - "key": Press a keyboard key (enter, space, tab, etc.)
         - "select": Select an option from a dropdown
         - "scroll": Scroll in a direction (up, down, left, right)

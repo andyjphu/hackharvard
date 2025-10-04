@@ -211,12 +211,10 @@ class PerceptionEngine:
             pos_tuple = (position.x, position.y) if position else (0, 0)
             size_tuple = (size.width, size.height) if size else (0, 0)
 
-            # Add contextual information for better LLM understanding
-            contextual_title = title or self._get_contextual_title(
-                role, element, pos_tuple
-            )
-            contextual_description = description or self._get_contextual_description(
-                role, element, pos_tuple
+            # Prioritize real accessibility labels, fall back to contextual guessing
+            contextual_title = self._get_best_title(element, role, pos_tuple)
+            contextual_description = self._get_best_description(
+                element, role, pos_tuple
             )
 
             return UISignal(
@@ -235,6 +233,71 @@ class PerceptionEngine:
 
         except Exception as e:
             return None
+
+    def _get_best_title(self, element, role: str, pos_tuple: tuple) -> str:
+        """Get the best available title from accessibility API or fallback to contextual"""
+        try:
+            # 1. Try AXTitle (most common)
+            title = getattr(element, "AXTitle", None)
+            if title and title.strip():
+                return title.strip()
+
+            # 2. Try AXDescription
+            description = getattr(element, "AXDescription", None)
+            if description and description.strip():
+                return description.strip()
+
+            # 3. Try AXHelp
+            help_text = getattr(element, "AXHelp", None)
+            if help_text and help_text.strip():
+                return help_text.strip()
+
+            # 4. Try AXValue (for some elements)
+            value = getattr(element, "AXValue", None)
+            if value and str(value).strip():
+                return str(value).strip()
+
+            # 5. Try AXRoleDescription
+            role_desc = getattr(element, "AXRoleDescription", None)
+            if role_desc and role_desc.strip():
+                return role_desc.strip()
+
+            # 6. Fall back to contextual guessing
+            return self._get_contextual_title(role, element, pos_tuple)
+
+        except Exception:
+            # If anything fails, use contextual guessing
+            return self._get_contextual_title(role, element, pos_tuple)
+
+    def _get_best_description(self, element, role: str, pos_tuple: tuple) -> str:
+        """Get the best available description from accessibility API or fallback to contextual"""
+        try:
+            # 1. Try AXDescription (most common)
+            description = getattr(element, "AXDescription", None)
+            if description and description.strip():
+                return description.strip()
+
+            # 2. Try AXHelp
+            help_text = getattr(element, "AXHelp", None)
+            if help_text and help_text.strip():
+                return help_text.strip()
+
+            # 3. Try AXTitle (sometimes used for descriptions)
+            title = getattr(element, "AXTitle", None)
+            if title and title.strip():
+                return title.strip()
+
+            # 4. Try AXValue (for some elements)
+            value = getattr(element, "AXValue", None)
+            if value and str(value).strip():
+                return str(value).strip()
+
+            # 5. Fall back to contextual guessing
+            return self._get_contextual_description(role, element, pos_tuple)
+
+        except Exception:
+            # If anything fails, use contextual guessing
+            return self._get_contextual_description(role, element, pos_tuple)
 
     def _get_contextual_title(self, role: str, element, pos_tuple: tuple) -> str:
         """Generate contextual title based on role and position"""

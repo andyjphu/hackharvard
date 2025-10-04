@@ -252,7 +252,21 @@ class ActionEngine:
             )
             time.sleep(0.5)
 
-            return {"success": True, "result": f"Typed '{text}' into {target}"}
+            # Auto-press Enter for search completion (keystroke navigation)
+            print(f"      ⏎  Pressing Enter to complete search")
+            subprocess.run(
+                [
+                    "osascript",
+                    "-e",
+                    'tell application "System Events" to key code 36',  # Enter key
+                ]
+            )
+            time.sleep(0.5)
+
+            return {
+                "success": True,
+                "result": f"Typed '{text}' and pressed Enter into {target}",
+            }
 
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -379,6 +393,94 @@ class ActionEngine:
             time.sleep(0.5)
 
             return {"success": True, "result": f"Pressed {key} key"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def _execute_keystroke(self, target: str, text: str) -> Dict[str, Any]:
+        """Execute keystroke navigation - type and press Enter automatically"""
+        try:
+            import subprocess
+
+            # Find and focus the target element
+            element = self._find_element(target)
+            if not element:
+                return {"success": False, "error": f"Element not found: {target}"}
+
+            # Focus the application window
+            try:
+                app = None
+                common_apps = [
+                    "Google Chrome",
+                    "Safari",
+                    "System Settings",
+                    "Calculator",
+                    "Cursor",
+                    "Visual Studio Code",
+                ]
+
+                for app_name in common_apps:
+                    try:
+                        test_app = atomac.getAppRefByLocalizedName(app_name)
+                        if test_app and self._element_in_window(element, test_app):
+                            app = test_app
+                            break
+                    except:
+                        continue
+
+                if app:
+                    app.activate()
+                    time.sleep(1.0)
+            except Exception as e:
+                print(f"      ⚠️  App focus failed: {e}")
+
+            # Click the element to focus it
+            try:
+                element.AXPress()
+                time.sleep(0.5)
+            except Exception as e:
+                print(f"      ⚠️  Could not click element: {e}")
+
+            # Clear the field and type
+            print(f"      ⌨️  Keystroke navigation: '{text}' + Enter")
+
+            # Clear field
+            subprocess.run(
+                [
+                    "osascript",
+                    "-e",
+                    'tell application "System Events" to keystroke "a" using command down',
+                ]
+            )
+            time.sleep(0.2)
+            subprocess.run(
+                [
+                    "osascript",
+                    "-e",
+                    'tell application "System Events" to keystroke (ASCII character 127)',
+                ]
+            )
+            time.sleep(0.2)
+
+            # Type the text
+            subprocess.run(
+                [
+                    "osascript",
+                    "-e",
+                    f'tell application "System Events" to keystroke "{text}"',
+                ]
+            )
+            time.sleep(0.3)
+
+            # Press Enter to complete
+            subprocess.run(
+                ["osascript", "-e", 'tell application "System Events" to key code 36']
+            )
+            time.sleep(0.5)
+
+            return {
+                "success": True,
+                "result": f"Keystroke navigation: '{text}' + Enter",
+            }
         except Exception as e:
             return {"success": False, "error": str(e)}
 
