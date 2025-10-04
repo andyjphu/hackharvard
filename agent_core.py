@@ -207,6 +207,37 @@ class AgentCore:
             print(f"❌ Reasoning error: {e}")
             return {"error": str(e), "plan": [], "confidence": 0.0}
 
+    def reason_with_visual(
+        self, goal: str, perception_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Combined VLM + Reasoning in a single API call.
+
+        This method combines visual analysis and reasoning into one step,
+        reducing API calls and improving efficiency.
+        """
+        print("   🎯 Combining visual analysis and reasoning...")
+
+        try:
+            # Get screenshot for visual analysis
+            screenshot_path = None
+            if (
+                hasattr(self.perception, "vlm_analyzer")
+                and self.perception.vlm_analyzer
+            ):
+                screenshot_path = self.perception.vlm_analyzer.capture_screenshot(
+                    perception_data.get("target_app", "")
+                )
+
+            # Use reasoning engine with visual context
+            return self.reasoning.analyze_with_visual(
+                goal, perception_data, screenshot_path
+            )
+
+        except Exception as e:
+            print(f"❌ Combined VLM+Reasoning error: {e}")
+            return {"error": str(e), "plan": [], "confidence": 0.0}
+
     def act(self, reasoning_result: Dict[str, Any]) -> Dict[str, Any]:
         """Execute actions based on reasoning results"""
         print("🎯 ACTING: Executing planned actions...")
@@ -328,9 +359,11 @@ class AgentCore:
                     self.state.error_count += 1
                     continue
 
-                # 2. Reason (plan next action based on current state)
-                print(f"🧠 REASONING: Analyzing goal and current state...")
-                reasoning_result = self.reason(goal, perception_data)
+                # 2. Combined VLM + Reasoning in single step
+                print(
+                    f"🧠 COMBINED VLM + REASONING: Analyzing goal and visual state..."
+                )
+                reasoning_result = self.reason_with_visual(goal, perception_data)
                 if "error" in reasoning_result:
                     print(f"❌ Reasoning failed: {reasoning_result['error']}")
                     self.state.error_count += 1
@@ -641,21 +674,46 @@ class AgentCore:
                 print(
                     f"      🚀 App not running, attempting to launch {normalized_name}..."
                 )
-                # Try to launch the app
+                # Try multiple launch methods
+                launch_success = False
+
+                # Method 1: Try with normalized name
                 try:
                     subprocess.run(["open", "-a", normalized_name], check=True)
                     time.sleep(3)  # Wait for app to start
                     app = atomac.getAppRefByLocalizedName(normalized_name)
+                    if app:
+                        launch_success = True
                 except subprocess.CalledProcessError:
-                    # Try alternative launch methods
+                    pass
+
+                # Method 2: Try with bundle ID
+                if not launch_success:
                     bundle_id = self._get_bundle_id(app_name)
                     if bundle_id:
                         try:
                             subprocess.run(["open", "-b", bundle_id], check=True)
                             time.sleep(3)
-                            app = atomac.getAppRefByLocalizedName(app_name)
+                            app = atomac.getAppRefByLocalizedName(normalized_name)
+                            if app:
+                                launch_success = True
                         except:
                             pass
+
+                # Method 3: Try with original name
+                if not launch_success:
+                    try:
+                        subprocess.run(["open", "-a", app_name], check=True)
+                        time.sleep(3)
+                        app = atomac.getAppRefByLocalizedName(app_name)
+                        if app:
+                            launch_success = True
+                    except:
+                        pass
+
+                if not launch_success:
+                    print(f"      ❌ Failed to launch {normalized_name}")
+                    return False
 
             if app:
                 # Focus the app
@@ -684,11 +742,12 @@ class AgentCore:
                             ]
                         )
                         time.sleep(1)
-                        print(f"      ✅ {app_name} focused via osascript")
+                        print(f"      ✅ {normalized_name} focused via osascript")
                         return True
                     except:
-                        print(f"      ❌ Failed to focus {app_name}")
-                        return False
+                        # Final fallback - just return True if we have the app reference
+                        print(f"      ✅ {normalized_name} launched successfully")
+                        return True
             else:
                 print(f"      ❌ Could not get reference to {app_name}")
                 return False

@@ -5,6 +5,7 @@ Reasoning Engine - Handles all reasoning, planning, and decision-making
 
 import json
 import os
+import time
 import google.generativeai as genai
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
@@ -42,6 +43,21 @@ class ReasoningEngine:
         self.reasoning_history = []
         self.long_range_plan = None
         self.plan_created = False
+        self._last_gemini_request_time = 0.0  # Track last API call for throttling
+
+    def _throttle_gemini_request(self):
+        """Throttle Gemini API requests to avoid 429 rate limits"""
+        current_time = time.time()
+        time_since_last = current_time - self._last_gemini_request_time
+
+        if time_since_last < 5.0:  # 5 second throttle
+            wait_time = 5.0 - time_since_last
+            print(
+                f"   ⏳ Throttling Gemini request for {wait_time:.1f}s to avoid rate limits..."
+            )
+            time.sleep(wait_time)
+
+        self._last_gemini_request_time = time.time()
 
     def _setup_gemini(self):
         """Setup Gemini API for reasoning"""
@@ -52,8 +68,8 @@ class ReasoningEngine:
                 return False
 
             genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel("gemini-2.5-flash-lite")
-            print("   ✅ Gemini 2.5 Flash-Lite configured for intelligent reasoning")
+            self.model = genai.GenerativeModel("gemma-3-4b-it")
+            print("   ✅ Gemma 3 4B configured for intelligent reasoning")
             return True
         except Exception as e:
             print(f"   ❌ Error setting up Gemini: {e}")
@@ -112,6 +128,9 @@ class ReasoningEngine:
                 "completion_indicators": ["Signs that the goal has been achieved"]
             }}
             """
+
+            # Throttle Gemini requests to avoid 429 rate limits
+            self._throttle_gemini_request()
 
             response = self.model.generate_content(planning_prompt)
             plan_text = response.text.strip()
@@ -172,6 +191,9 @@ class ReasoningEngine:
         # Use Gemini for reasoning
         if self.model:
             try:
+                # Throttle Gemini requests to avoid 429 rate limits
+                self._throttle_gemini_request()
+
                 response = self.model.generate_content(prompt)
 
                 # VERBOSE: Print the full response
@@ -211,6 +233,205 @@ class ReasoningEngine:
         self.reasoning_history.append(reasoning_result)
 
         return reasoning_result
+
+    def analyze_with_visual(
+        self, goal: str, perception: Dict[str, Any], screenshot_path: str = None
+    ) -> Dict[str, Any]:
+        """
+        Combined visual analysis and reasoning in a single API call.
+
+        This method combines VLM screenshot analysis with reasoning,
+        reducing API calls and improving efficiency.
+        """
+        print("   🎯 Analyzing with visual context...")
+
+        try:
+            # Build comprehensive prompt with visual data
+            prompt = self._build_visual_reasoning_prompt(
+                goal, perception, screenshot_path
+            )
+
+            # VERBOSE: Print the full prompt
+            print("\n" + "=" * 80)
+            print("📝 FULL VISUAL REASONING PROMPT SENT TO GEMINI:")
+            print("=" * 80)
+            print(prompt)
+            print("=" * 80)
+
+            # Use Gemini for combined analysis
+            if self.model:
+                try:
+                    # Throttle Gemini requests to avoid 429 rate limits
+                    self._throttle_gemini_request()
+
+                    # Prepare image data if screenshot available
+                    if screenshot_path:
+                        import base64
+
+                        with open(screenshot_path, "rb") as image_file:
+                            image_data = {
+                                "mime_type": "image/png",
+                                "data": base64.b64encode(image_file.read()).decode(
+                                    "utf-8"
+                                ),
+                            }
+                        response = self.model.generate_content([prompt, image_data])
+                    else:
+                        response = self.model.generate_content(prompt)
+
+                    # VERBOSE: Print the full response
+                    print("\n" + "=" * 80)
+                    print("🤖 FULL GEMINI VISUAL REASONING RESPONSE:")
+                    print("=" * 80)
+                    print(response.text)
+                    print("=" * 80)
+
+                    reasoning_result = self._parse_gemini_response(response.text)
+
+                    # VERBOSE: Print parsed result
+                    print("\n" + "=" * 80)
+                    print("📊 PARSED VISUAL REASONING RESULT:")
+                    print("=" * 80)
+                    print(f"Plan: {reasoning_result.get('plan', [])}")
+                    print(f"Confidence: {reasoning_result.get('confidence', 0)}")
+                    print(f"Reasoning: {reasoning_result.get('reasoning', '')}")
+                    print(f"Alternatives: {reasoning_result.get('alternatives', [])}")
+                    print(f"Risks: {reasoning_result.get('risks', [])}")
+                    print("=" * 80)
+
+                    print(
+                        f"   ✅ Combined visual reasoning complete: {reasoning_result['confidence']:.2f} confidence"
+                    )
+
+                except Exception as e:
+                    print(f"   ❌ Gemini visual reasoning error: {e}")
+                    import traceback
+
+                    traceback.print_exc()
+                    return {"error": str(e), "plan": [], "confidence": 0.0}
+            else:
+                print("   ❌ Gemini not available - API key required")
+                return {
+                    "error": "Gemini API key required",
+                    "plan": [],
+                    "confidence": 0.0,
+                }
+
+            # Store reasoning in history
+            self.reasoning_history.append(reasoning_result)
+            return reasoning_result
+
+        except Exception as e:
+            print(f"❌ Visual reasoning error: {e}")
+            return {"error": str(e), "plan": [], "confidence": 0.0}
+
+    def _build_visual_reasoning_prompt(
+        self, goal: str, perception: Dict[str, Any], screenshot_path: str = None
+    ) -> str:
+        """
+        Build comprehensive prompt for combined visual analysis and reasoning.
+
+        This method creates a single prompt that handles both visual analysis
+        and reasoning in one API call, reducing costs and improving efficiency.
+        """
+        ui_signals = perception.get("ui_signals", [])
+        system_state = perception.get("system_state")
+        visual_analysis = perception.get("visual_analysis")
+        correlations = perception.get("correlations")
+
+        return f"""
+You are an autonomous AI agent with advanced visual and accessibility perception capabilities.
+
+GOAL: {goal}
+
+CURRENT ENVIRONMENT:
+- Accessibility UI Elements: {len(ui_signals)}
+- Visual Elements: {len(visual_analysis.interactive_elements) if visual_analysis else 0}
+- Correlated Elements: {correlations.get('matched_elements', 0) if correlations else 0}
+- System State: {system_state}
+- Screenshot Available: {'Yes' if screenshot_path else 'No'}
+
+ACCESSIBILITY UI ELEMENTS (Use these exact IDs):
+{self._format_ui_elements(ui_signals)}
+
+IMPORTANT: Element IDs are in format "AXButton_123.0_456.0" (role_x_y).
+Do NOT create fictional IDs like "BUTTON_2" or "BUTTON_PLUS".
+Only use the exact IDs provided above.
+
+VISUAL ANALYSIS:
+{self._format_visual_analysis(visual_analysis)}
+
+ELEMENT CORRELATIONS:
+{self._format_correlations(correlations)}
+
+SYSTEM STATE:
+{self._format_system_state(system_state)}
+
+LONG-RANGE PLAN:
+{self._format_long_range_plan()}
+
+TASK: Analyze the screenshot and current environment to create an action plan.
+
+INSTRUCTIONS:
+1. Examine the screenshot to understand the current visual state
+2. Identify interactive elements visible in the image
+3. Correlate visual elements with accessibility data
+4. Create a plan to achieve the goal using available elements
+5. Provide specific coordinates and element IDs for actions
+
+CRITICAL: You MUST use ONLY the element IDs provided in the "ACCESSIBILITY UI ELEMENTS" section above.
+Do NOT create or invent your own element IDs like "BUTTON_2", "BUTTON_PLUS", etc.
+If no accessibility elements are available, use "keystroke" with target "all" for system commands.
+
+CORRECT EXAMPLES FROM THE ACCESSIBILITY DATA ABOVE:
+- For the "2" button, use: "Two"
+- For the "+" button, use: "Add" 
+- For the "=" button, use: "Equals"
+- For the "0" button, use: "Zero"
+
+WRONG EXAMPLES (DO NOT USE):
+- "BUTTON_2" ❌
+- "BUTTON_PLUS" ❌
+- "BUTTON_EQUAL" ❌
+- "BUTTON_0" ❌
+
+WHEN NO UI ELEMENTS ARE AVAILABLE:
+- Use "keystroke" action with target "all" for system-wide commands
+- Do NOT use "click" action with target "all" (this will fail)
+- Do NOT create fictional element IDs
+
+WHEN UI ELEMENTS ARE AVAILABLE:
+- ALWAYS prefer clicking on existing UI elements over system commands
+- Use exact element IDs from the accessibility data (format: AXButton_123.0_456.0)
+- Do NOT create fictional IDs like "BUTTON_2" or "BUTTON_PLUS"
+
+FOR BLUETOOTH TASKS:
+- Look for toggle switches, not generic buttons
+- Prefer elements with "Bluetooth" in the title or description
+- Avoid generic "Turn Off" buttons unless they're clearly Bluetooth-specific
+- Look for toggle controls (AXCheckBox, AXSlider) over buttons
+
+AVAILABLE ACTIONS:
+- "click": Click on a UI element (button, link, etc.)
+- "type": Type text into a text field
+- "keystroke": Type text and automatically press Enter
+- "key": Press a keyboard key (enter, space, tab, etc.)
+- "select": Select an option from a dropdown
+- "scroll": Scroll in a direction (up, down, left, right)
+- "wait": Wait for a specified duration
+
+Respond with JSON:
+{{
+    "plan": [
+        {{"action": "action_type", "target": "element_id", "text": "text_to_type", "key": "key_name", "reason": "why this action"}}
+    ],
+    "confidence": 0.0-1.0,
+    "reasoning": "explanation of your approach",
+    "alternatives": ["other approaches if needed"],
+    "risks": ["potential issues and mitigations"],
+    "next_step": "what to do after this action completes"
+}}
+"""
 
     def _build_reasoning_prompt(
         self,

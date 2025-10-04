@@ -120,6 +120,8 @@ class PerceptionEngine:
         """Discover all available UI elements and their capabilities"""
         print("   🔍 Scanning UI elements...")
 
+        # Clear seen elements to ensure fresh scanning on each call
+        self.seen_elements.clear()
         elements = []
 
         try:
@@ -129,7 +131,12 @@ class PerceptionEngine:
                 print(
                     f"   🎯 Looking for app: {target_app} (normalized: {normalized_app_name})"
                 )
-                app = atomac.getAppRefByLocalizedName(normalized_app_name)
+                try:
+                    app = atomac.getAppRefByLocalizedName(normalized_app_name)
+                except Exception as e:
+                    print(f"   ⚠️  Error getting app reference: {e}")
+                    app = None
+
                 if not app:
                     print(f"   ❌ App '{normalized_app_name}' not found")
                     print(
@@ -452,10 +459,24 @@ class PerceptionEngine:
                     time.sleep(2)  # Wait for app to start
 
                     # Check if app is now running
-                    app = atomac.getAppRefByLocalizedName(app_name)
-                    if app:
-                        print(f"      ✅ Successfully launched {app_name}")
-                        return app
+                    try:
+                        app = atomac.getAppRefByLocalizedName(app_name)
+                        if app:
+                            print(f"      ✅ Successfully launched {app_name}")
+                            return app
+                    except Exception as e:
+                        print(f"      ⚠️  Error checking if app launched: {e}")
+                        # Try with normalized name
+                        try:
+                            normalized_name = self._normalize_app_name(app_name)
+                            app = atomac.getAppRefByLocalizedName(normalized_name)
+                            if app:
+                                print(
+                                    f"      ✅ Successfully launched {normalized_name}"
+                                )
+                                return app
+                        except:
+                            pass
                 except Exception as e:
                     print(f"      ⚠️  Launch method {i+1} failed: {e}")
                     continue
@@ -617,15 +638,28 @@ class PerceptionEngine:
     def capture_visual_analysis(
         self, target_app: str, goal: str = ""
     ) -> Optional[VisualAnalysis]:
-        """Capture and analyze visual elements using VLM"""
+        """Capture and analyze visual elements using VLM with throttling"""
         if not self.vlm_analyzer:
             return None
 
         try:
             print("   📸 Capturing visual analysis...")
 
-            # Capture screenshot
-            screenshot_path = self.vlm_analyzer.capture_screenshot()
+            # Throttle VLM requests to avoid 429 rate limits
+            current_time = time.time()
+            if hasattr(self, "_last_vlm_request_time"):
+                time_since_last = current_time - self._last_vlm_request_time
+                if time_since_last < 5.0:  # 5 second throttle
+                    wait_time = 5.0 - time_since_last
+                    print(
+                        f"   ⏳ Throttling VLM request for {wait_time:.1f}s to avoid rate limits..."
+                    )
+                    time.sleep(wait_time)
+
+            self._last_vlm_request_time = time.time()
+
+            # Capture screenshot of focused window
+            screenshot_path = self.vlm_analyzer.capture_screenshot(target_app)
             if not screenshot_path:
                 print("   ❌ Failed to capture screenshot for VLM analysis")
                 return None
@@ -698,13 +732,29 @@ class PerceptionEngine:
                     if distance < 50:  # Within 50 pixels
                         score += 3
 
-                # Text correlation
+                # Text correlation (be more selective)
                 if ui_title and visual_element.text:
+                    ui_title_clean = ui_title.strip().lower()
+                    vis_text_clean = visual_element.text.strip().lower()
+
+                    # Only match if there's a meaningful overlap (not just generic text)
                     if (
-                        ui_title in visual_element.text.lower()
-                        or visual_element.text.lower() in ui_title
+                        ui_title_clean == vis_text_clean  # Exact match
+                        or (
+                            len(ui_title_clean) > 3 and ui_title_clean in vis_text_clean
+                        )  # Meaningful substring
+                        or (
+                            len(vis_text_clean) > 3 and vis_text_clean in ui_title_clean
+                        )  # Meaningful substring
                     ):
                         score += 2
+                    # Penalize generic matches
+                    elif ui_title_clean in [
+                        "button",
+                        "turn off",
+                        "click",
+                    ] or vis_text_clean in ["button", "turn off", "click"]:
+                        score -= 1  # Penalize generic matches
 
                 # Type correlation
                 if (
@@ -734,11 +784,28 @@ class PerceptionEngine:
                     }
                 )
 
+        # Remove duplicate correlations (multiple accessibility elements matching same visual element)
+        unique_correlations = []
+        used_visual_elements = set()
+
+        # Sort by correlation score (highest first)
+        correlations.sort(key=lambda x: x["correlation_score"], reverse=True)
+
+        for correlation in correlations:
+            visual_element = correlation["visual_element"]
+            visual_key = (
+                f"{visual_element.text}_{visual_element.type}_{visual_element.purpose}"
+            )
+
+            if visual_key not in used_visual_elements:
+                unique_correlations.append(correlation)
+                used_visual_elements.add(visual_key)
+
         return {
-            "correlations": correlations,
+            "correlations": unique_correlations,
             "total_ui_signals": len(ui_signals),
             "total_visual_elements": len(visual_analysis.interactive_elements),
-            "matched_elements": len(correlations),
+            "matched_elements": len(unique_correlations),
         }
 
     def get_hybrid_perception(self, target_app: str, goal: str = "") -> Dict[str, Any]:
