@@ -125,6 +125,23 @@ class FinalUIDumper:
         if not ACCESSIBILITY_AVAILABLE:
             return {"error": "Accessibility not available"}
 
+        # Get all available attributes
+        all_attrs = self._safe(AXUIElementCopyAttributeNames, el)
+        if isinstance(all_attrs, (list, tuple)):
+            # Get all attributes in one call for efficiency
+            multi_values = self._safe(
+                AXUIElementCopyMultipleAttributeValues, el, all_attrs, True
+            )
+            if isinstance(multi_values, dict):
+                return multi_values
+            else:
+                # Fallback to individual calls
+                return self._get_element_info_individual(el)
+        else:
+            return self._get_element_info_individual(el)
+
+    def _get_element_info_individual(self, el):
+        """Get element info using individual attribute calls."""
         return {
             "role": self._safe(AXUIElementCopyAttributeValue, el, kAXRoleAttribute),
             "role_description": self._safe(
@@ -151,6 +168,7 @@ class FinalUIDumper:
                 AXUIElementCopyAttributeValue, el, kAXPositionAttribute
             ),
             "size": self._safe(AXUIElementCopyAttributeValue, el, kAXSizeAttribute),
+            "help": self._safe(AXUIElementCopyAttributeValue, el, kAXHelpAttribute),
         }
 
     def print_beautiful_tree(self, el, indent=0, max_depth=None, prefix=""):
@@ -392,31 +410,70 @@ class FinalUIDumper:
         return True
 
     def find_and_display_elements(self, window, element_type, role):
-        """Find and display elements of a specific type."""
+        """Find and display elements of a specific type with full details."""
         try:
             elements = window.findAllR(AXRole=role) or []
             if elements:
                 print(f"\n🔍 {element_type} ({len(elements)} found):")
                 for i, el in enumerate(elements):  # Show ALL elements
+                    # Get comprehensive element information
                     title = getattr(el, "AXTitle", None) or ""
                     desc = getattr(el, "AXDescription", None) or ""
+                    identifier = getattr(el, "AXIdentifier", None) or ""
+                    value = getattr(el, "AXValue", None) or ""
+                    help_text = getattr(el, "AXHelp", None) or ""
                     enabled = getattr(el, "AXEnabled", True)
                     focused = getattr(el, "AXFocused", False)
+                    position = getattr(el, "AXPosition", None)
+                    size = getattr(el, "AXSize", None)
+                    role_desc = getattr(el, "AXRoleDescription", None) or ""
 
+                    # Build status indicators
                     status = []
                     if not enabled:
                         status.append("❌")
                     if focused:
                         status.append("🎯")
-
                     status_str = " " + " ".join(status) if status else ""
 
-                    display_text = f"   {i+1}. {title}"
+                    # Primary display line
+                    display_parts = []
+                    if title:
+                        display_parts.append(f"Title: '{title}'")
                     if desc and desc != title:
-                        display_text += f" | {desc}"
-                    display_text += status_str
+                        display_parts.append(f"Desc: '{desc}'")
+                    if identifier:
+                        display_parts.append(f"ID: '{identifier}'")
+                    if value:
+                        display_parts.append(f"Value: '{value}'")
+                    if help_text:
+                        display_parts.append(f"Help: '{help_text}'")
+
+                    if display_parts:
+                        display_text = (
+                            f"   {i+1}. {' | '.join(display_parts)}{status_str}"
+                        )
+                    else:
+                        display_text = f"   {i+1}. (no title/desc/id/value){status_str}"
 
                     print(display_text)
+
+                    # Additional details line
+                    detail_parts = []
+                    if position:
+                        detail_parts.append(
+                            f"Pos: ({position.x:.0f}, {position.y:.0f})"
+                        )
+                    if size:
+                        detail_parts.append(
+                            f"Size: ({size.width:.0f}x{size.height:.0f})"
+                        )
+                    if role_desc:
+                        detail_parts.append(f"Role: {role_desc}")
+
+                    if detail_parts:
+                        print(f"       {' | '.join(detail_parts)}")
+
         except Exception as e:
             print(f"   Error finding {element_type}: {e}")
 
@@ -448,10 +505,52 @@ class FinalUIDumper:
                 for i, (el, title, desc, role) in enumerate(
                     content_elements[:50]
                 ):  # Limit to 50 for readability
-                    display_text = f"   {i+1}. [{role}] {title}"
+                    # Get additional details
+                    identifier = getattr(el, "AXIdentifier", None) or ""
+                    value = getattr(el, "AXValue", None) or ""
+                    help_text = getattr(el, "AXHelp", None) or ""
+                    position = getattr(el, "AXPosition", None)
+                    size = getattr(el, "AXSize", None)
+                    enabled = getattr(el, "AXEnabled", True)
+                    focused = getattr(el, "AXFocused", False)
+
+                    # Build status indicators
+                    status = []
+                    if not enabled:
+                        status.append("❌")
+                    if focused:
+                        status.append("🎯")
+                    status_str = " " + " ".join(status) if status else ""
+
+                    # Primary display line
+                    display_parts = [f"[{role}]"]
+                    if title:
+                        display_parts.append(f"Title: '{title}'")
                     if desc and desc != title:
-                        display_text += f" | {desc}"
+                        display_parts.append(f"Desc: '{desc}'")
+                    if identifier:
+                        display_parts.append(f"ID: '{identifier}'")
+                    if value:
+                        display_parts.append(f"Value: '{value}'")
+                    if help_text:
+                        display_parts.append(f"Help: '{help_text}'")
+
+                    display_text = f"   {i+1}. {' | '.join(display_parts)}{status_str}"
                     print(display_text)
+
+                    # Additional details line
+                    detail_parts = []
+                    if position:
+                        detail_parts.append(
+                            f"Pos: ({position.x:.0f}, {position.y:.0f})"
+                        )
+                    if size:
+                        detail_parts.append(
+                            f"Size: ({size.width:.0f}x{size.height:.0f})"
+                        )
+
+                    if detail_parts:
+                        print(f"       {' | '.join(detail_parts)}")
 
                 if len(content_elements) > 50:
                     print(
