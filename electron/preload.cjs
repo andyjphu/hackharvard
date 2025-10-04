@@ -1,14 +1,58 @@
-const { contextBridge, ipcRenderer } = require ('electron');
-console.log("START");
-// Expose a secure API to the renderer process
+// preload.cjs
+const { contextBridge, ipcRenderer } = require('electron');
+
+const validSend = new Set([
+  'minimize-window',
+  'close-window',
+  // (drop 'user-input' to avoid confusion with the new agent flow)
+]);
+
+const validInvoke = new Set([
+  'agent/run',          // run Python agent with a goal
+  'debug/selftest',     // optional: Windows debugger ops
+  'debug/ping',
+  'debug/echo',
+  'capture-screenshot', // you already use this
+]);
+
+const validOn = new Set([
+  'agent-event',        // stream step-by-step events from Python
+  // if you still use these elsewhere, keep them; otherwise remove:
+  // 'assistant-response',
+  // 'assistant-error',
+]);
+
 contextBridge.exposeInMainWorld('ipcrenderer', {
-  invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
-  send: (channel, ...args) => {
-    const validChannels = ['minimize-window', 'close-window', 'user-input']; // Whitelist channels
-    if (validChannels.includes(channel)) {
-      ipcRenderer.send(channel, ...args);
+  invoke: (channel, ...args) => {
+    if (!validInvoke.has(channel)) {
+      throw new Error(`Blocked invoke channel: ${channel}`);
     }
+    return ipcRenderer.invoke(channel, ...args);
   },
-  on: (channel, listener) => ipcRenderer.on(channel, listener),
-  off: (channel, listener) => ipcRenderer.removeListener(channel, listener),
+
+  send: (channel, ...args) => {
+    if (!validSend.has(channel)) {
+      throw new Error(`Blocked send channel: ${channel}`);
+    }
+    ipcRenderer.send(channel, ...args);
+  },
+
+  on: (channel, listener) => {
+    if (!validOn.has(channel)) {
+      throw new Error(`Blocked on channel: ${channel}`);
+    }
+    ipcRenderer.on(channel, listener);
+  },
+
+  off: (channel, listener) => {
+    ipcRenderer.removeListener(channel, listener);
+  },
+
+  // Optional: convenience "once" helper
+  once: (channel, listener) => {
+    if (!validOn.has(channel)) {
+      throw new Error(`Blocked once channel: ${channel}`);
+    }
+    ipcRenderer.once(channel, listener);
+  },
 });

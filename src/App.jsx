@@ -37,7 +37,7 @@ export default function App() {
       } catch (e) {
         // ignore screenshot errors in dev
       }
-    }, 10000);
+    }, 1000);
     return () => clearInterval(interval);
   }, []);
 
@@ -46,6 +46,40 @@ export default function App() {
     const el = listRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, awaitingResponse]);
+
+  // ★ NEW: stream Python agent events into the chat as “steps”
+  useEffect(() => {
+    const formatEvent = (msg) => {
+      const e = msg?.event;
+      if (!e) return null;
+
+      if (e === 'bridge_ready') {
+        return `🧩 Python bridge ready (pid ${msg.pid})${msg.has_agent === false ? ' — agent_core not imported' : ''}`;
+      }
+      if (e === 'warn') return `⚠️ ${msg.message || 'Warning from agent bridge'}`;
+      if (e === 'started') return `🚀 Agent started\nGoal: ${msg.goal || '(none)'}${msg.target_app ? `\nTarget app: ${msg.target_app}` : ''}`;
+      if (e === 'selftest') return `🔬 Self-test\nPlatform: ${msg.platform}\nPython: ${String(msg.python_version).split('\n')[0]}\nGEMINI_API_KEY set: ${String(msg.env?.GEMINI_API_KEY_set)}\nagent_core import: ${String(msg.has_agent)}`;
+      if (e === 'finished') {
+        const r = msg.result || {};
+        return `🏁 Agent finished\nSuccess: ${String(r.success)}\nIterations: ${r.iterations ?? '—'}\nErrors: ${r.errors ?? '—'}\nProgress: ${typeof r.progress === 'number' ? r.progress.toFixed(2) : '—'}${r.message ? `\n${r.message}` : ''}`;
+      }
+      if (e === 'error') return `❌ ${msg.error || 'Unknown agent error'}`;
+      if (e === 'pong') return `🏓 pong`;
+      if (e === 'echo') return `🔁 echo: ${JSON.stringify(msg.data)}`;
+
+      // Fallback: show raw event
+      return `ℹ️ ${e}: ${JSON.stringify(msg)}`;
+    };
+
+    const onAgentEvent = (_evt, msg) => {
+      const text = formatEvent(msg);
+      if (!text) return;
+      setMessages(prev => [...prev, { id: genId(), role: 'assistant', text }]);
+    };
+
+    window.ipcrenderer.on('agent-event', onAgentEvent);
+    return () => window.ipcrenderer.off('agent-event', onAgentEvent);
+  }, []);
 
   // Window controls
   const handleMinimize = () => window.ipcrenderer.send('minimize-window');
@@ -136,30 +170,25 @@ export default function App() {
     // Lock UI while waiting
     lockComposer();
 
-    // Build payload
-    const payload = {
-      text,
-      files: await Promise.all(files.map(async (f) => ({
-        name: f.name,
-        type: f.type,
-        size: f.size,
-        // If you need raw bytes later:
-        // data: Array.from(new Uint8Array(await f.arrayBuffer())),
-      }))),
-      hasAudio: !!audioBlob,
-      // audio: audioBlob ? Array.from(new Uint8Array(await audioBlob.arrayBuffer())) : null,
-      ts: Date.now(),
-    };
-
     try {
-      // Await main's reply (requires ipcMain.handle('user-input', ...))
-      const res = await window.ipcrenderer.invoke('user-input', payload);
-      const replyText = typeof res === 'string' ? res : (res?.text ?? '');
+      // ★ CHANGED: call your Python-backed agent
+      const res = await window.ipcrenderer.invoke('agent/run', {
+        goal: text,            // ← send the user's input as the goal
+        target_app: null,      // or "Safari", etc., if you want to force
+        max_iterations: 3,     // keep small for quick tests
+      });
+
+      // Optional: show a short summary immediately (you’ll also see streamed “finished”)
+      const replyText =
+        typeof res === 'string'
+          ? res
+          : `✅ Result\nSuccess: ${String(res?.success)}\nIterations: ${res?.iterations ?? '—'}\nErrors: ${res?.errors ?? '—'}\nProgress: ${typeof res?.progress === 'number' ? res.progress.toFixed(2) : '—'}${res?.message ? `\n${res.message}` : ''}`;
+
       setMessages(prev => [...prev, { id: genId(), role: 'assistant', text: replyText }]);
     } catch (e) {
       setMessages(prev => [
         ...prev,
-        { id: genId(), role: 'assistant', text: `⚠️ ${e?.message || 'Failed to get a reply.'}` }
+        { id: genId(), role: 'assistant', text: `⚠️ ${e?.message || 'Failed to run agent.'}` }
       ]);
     } finally {
       // Clear composer + unlock
@@ -269,7 +298,7 @@ export default function App() {
         <form onSubmit={handleSubmit} className="sticky bottom-0 left-0 right-0 py-3">
           <div className={`w-full rounded-2xl bg-sky-300/10 backdrop-blur-2xl border border-white/10 p-2 flex items-center gap-2 ${awaitingResponse ? 'opacity-60' : ''}`}>
 
-            {/* File button */}
+            {/* File button (optional) */}
             {/* <button
               type="button"
               onClick={handleChooseFiles}
