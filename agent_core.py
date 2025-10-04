@@ -421,6 +421,90 @@ class AgentCore:
             print(f"   ⚠️  Error in app selection: {e}")
             return available_apps[0] if available_apps else None
 
+    def _focus_target_app(self, app_name: str) -> bool:
+        """Focus the target application to ensure it's active"""
+        try:
+            import atomacos as atomac
+            import subprocess
+            import time
+
+            print(f"      🎯 Focusing {app_name}...")
+
+            # Try to get the app reference
+            app = atomac.getAppRefByLocalizedName(app_name)
+
+            if not app:
+                print(f"      🚀 App not running, attempting to launch {app_name}...")
+                # Try to launch the app
+                try:
+                    subprocess.run(["open", "-a", app_name], check=True)
+                    time.sleep(3)  # Wait for app to start
+                    app = atomac.getAppRefByLocalizedName(app_name)
+                except subprocess.CalledProcessError:
+                    # Try alternative launch methods
+                    bundle_id = self._get_bundle_id(app_name)
+                    if bundle_id:
+                        try:
+                            subprocess.run(["open", "-b", bundle_id], check=True)
+                            time.sleep(3)
+                            app = atomac.getAppRefByLocalizedName(app_name)
+                        except:
+                            pass
+
+            if app:
+                # Focus the app
+                app.activate()
+                time.sleep(1)  # Wait for focus
+
+                # Verify the app is focused
+                frontmost_app = atomac.getFrontmostApp()
+                if frontmost_app and getattr(frontmost_app, "AXTitle", "") == app_name:
+                    print(f"      ✅ {app_name} is now focused")
+                    return True
+                else:
+                    print(
+                        f"      ⚠️  {app_name} focus verification failed, trying alternative method"
+                    )
+                    # Try using osascript to focus
+                    try:
+                        subprocess.run(
+                            [
+                                "osascript",
+                                "-e",
+                                f'tell application "{app_name}" to activate',
+                            ]
+                        )
+                        time.sleep(1)
+                        print(f"      ✅ {app_name} focused via osascript")
+                        return True
+                    except:
+                        print(f"      ❌ Failed to focus {app_name}")
+                        return False
+            else:
+                print(f"      ❌ Could not get reference to {app_name}")
+                return False
+
+        except Exception as e:
+            print(f"      ❌ Error focusing {app_name}: {e}")
+            return False
+
+    def _get_bundle_id(self, app_name: str) -> str:
+        """Get bundle ID for common apps"""
+        bundle_ids = {
+            "Calculator": "com.apple.calculator",
+            "Numbers": "com.apple.iWork.Numbers",
+            "Google Chrome": "com.google.Chrome",
+            "Safari": "com.apple.Safari",
+            "System Settings": "com.apple.systempreferences",
+            "Mail": "com.apple.mail",
+            "Calendar": "com.apple.iCal",
+            "Finder": "com.apple.finder",
+            "Cursor": "com.todesktop.230313mzl4w4u92",
+            "Visual Studio Code": "com.microsoft.VSCode",
+            "Terminal": "com.apple.Terminal",
+        }
+        return bundle_ids.get(app_name, "")
+
     def _get_app_load_time(self, app_name: str) -> int:
         """Get appropriate load time for different app types"""
         # Browser apps need more time

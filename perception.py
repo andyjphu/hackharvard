@@ -63,7 +63,9 @@ class PerceptionEngine:
                 app = atomac.getAppRefByLocalizedName(target_app)
                 if not app:
                     print(f"   ❌ App '{target_app}' not found")
-                    print(f"   🚀 No UI elements found, attempting to launch {target_app}...")
+                    print(
+                        f"   🚀 No UI elements found, attempting to launch {target_app}..."
+                    )
                     # Try to launch the app
                     app = self._launch_app(target_app)
                     if not app:
@@ -247,14 +249,18 @@ class PerceptionEngine:
             else:
                 return "Text Input Field"
         elif role == "AXButton":
-            if 300 < x < 400 and 70 < y < 100:  # Right of search bar (narrower range)
-                return "Search Button"
-            elif 400 < x < 500 and 70 < y < 100:  # Further right
+            # More flexible button labeling based on position
+            if 70 < y < 120:  # Top toolbar area
+                if 300 < x < 500:  # Near search area
+                    return "Search Button"
+                elif 500 < x < 700:  # Middle toolbar
+                    return "Action Button"
+                elif 700 < x < 900:  # Right toolbar
+                    return "Toolbar Button"
+                else:
+                    return "Toolbar Button"
+            elif 120 < y < 200:  # Secondary toolbar
                 return "Action Button"
-            elif 500 < x < 600 and 70 < y < 100:  # Even further right
-                return "Menu Button"
-            elif 600 < x < 800 and 70 < y < 100:  # Far right
-                return "Toolbar Button"
             else:
                 return "Button"
         elif role == "AXPopUpButton":
@@ -291,23 +297,27 @@ class PerceptionEngine:
         """Launch an application and return the app reference"""
         try:
             import subprocess
-            
+
             # Try different launch methods
             launch_methods = [
                 # Method 1: Direct app name
                 lambda: subprocess.run(["open", "-a", app_name], check=True),
                 # Method 2: Bundle ID
-                lambda: subprocess.run(["open", "-b", self._get_bundle_id(app_name)], check=True),
+                lambda: subprocess.run(
+                    ["open", "-b", self._get_bundle_id(app_name)], check=True
+                ),
                 # Method 3: Bundle path
-                lambda: subprocess.run(["open", self._get_bundle_path(app_name)], check=True),
+                lambda: subprocess.run(
+                    ["open", self._get_bundle_path(app_name)], check=True
+                ),
             ]
-            
+
             for i, method in enumerate(launch_methods):
                 try:
                     print(f"      🚀 Trying launch method {i+1} for {app_name}")
                     method()
                     time.sleep(2)  # Wait for app to start
-                    
+
                     # Check if app is now running
                     app = atomac.getAppRefByLocalizedName(app_name)
                     if app:
@@ -316,10 +326,10 @@ class PerceptionEngine:
                 except Exception as e:
                     print(f"      ⚠️  Launch method {i+1} failed: {e}")
                     continue
-            
+
             print(f"      ❌ All launch methods failed for {app_name}")
             return None
-            
+
         except Exception as e:
             print(f"      ❌ Error launching {app_name}: {e}")
             return None
