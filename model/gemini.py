@@ -24,7 +24,7 @@ class BrowserScreenshotAnalyzer:
         self.api_key = "your_api_key_here"
 
         genai.configure(api_key=self.api_key)
-        self.model = genai.GenerativeModel("gemma-3-4b-it")
+        self.model = genai.GenerativeModel("gemini-2.0-flash")
         self.screenshot_path = "browser_screenshot.png"
         self.annotated_screenshot_path = "browser_screenshot_annotated.png"
 
