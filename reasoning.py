@@ -169,7 +169,18 @@ class ReasoningEngine:
         CRITICAL: You MUST use ONLY the element IDs provided in the "AVAILABLE UI ELEMENTS" section above.
         Do NOT create or invent your own element IDs like "WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD".
         Look for elements with IDs like "AXTextField_802.5_43.0" or "AXButton_123.0_456.0".
-        If no suitable elements are available, use "all" as the target.
+        
+        WHEN NO UI ELEMENTS ARE AVAILABLE:
+        - Use "keystroke" action with target "all" for system-wide commands
+        - Do NOT use "click" action with target "all" (this will fail)
+        - For browser tasks: use "keystroke" with target "all" and text like "open safari" or search queries
+        - For terminal tasks: use "keystroke" with target "all" and terminal commands
+        
+        WHEN UI ELEMENTS ARE AVAILABLE:
+        - ALWAYS prefer clicking on existing UI elements over system commands
+        - If search results are visible, click on the most relevant result
+        - For video requests: click on YouTube video links to navigate to the actual video page
+        - Only use system commands when no relevant UI elements are available
         
         IMPORTANT: Plan only ONE action at a time. The agent will observe the results and plan the next action.
         Focus on the most immediate next step to make progress toward the goal.
@@ -191,6 +202,18 @@ class ReasoningEngine:
         - Do NOT try to click individual settings buttons
         - Let System Settings handle the search results automatically
         - Examples: "battery saver", "low power mode", "display settings", etc.
+        
+        BROWSER TASKS (Safari, Chrome, Firefox):
+        - Use "keystroke" action with target "all" for search queries
+        - Do NOT try to click individual browser buttons when no elements are available
+        - Let the browser handle the search results automatically
+        - Examples: "ishowspeed", "youtube ishowspeed", "search for ishowspeed", etc.
+        
+        VIDEO GOALS (showing videos, watching videos):
+        - If YouTube video links are visible in search results, click on them to navigate to the actual video page
+        - Look for elements with titles containing "YouTube", "Play on Google", or video duration
+        - Prioritize clicking on the most relevant video result rather than searching again
+        - Only search again if no video results are visible
         
         AVAILABLE ACTIONS:
         - "click": Click on a UI element (button, link, etc.)
