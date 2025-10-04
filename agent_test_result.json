@@ -1,6 +1,0 @@
-{
-  "state": "AgentState(goal='enhance security', current_task='', progress=1.0, confidence=0.0, last_action='click', error_count=5, session_id='20251004_082213')",
-  "memory_size": 5,
-  "reasoning_count": 5,
-  "action_count": 1
-}

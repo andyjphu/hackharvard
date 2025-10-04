@@ -1,0 +1,47 @@
+{
+  "perception_data": {
+    "ui_signals": [
+      {
+        "id": "AllClear",
+        "type": "AXButton",
+        "position": [406.0, 633.0],
+        "size": [40.0, 40.0],
+        "title": "",
+        "description": "",
+        "enabled": true,
+        "focused": false,
+        "source": "accessibility",
+        "confidence": 1.0
+      },
+      {
+        "id": "AXButton_533.0_310.0",
+        "type": "AXButton",
+        "position": [533.0, 310.0],
+        "size": [50.0, 30.0],
+        "title": "Submit",
+        "description": "Submit form button",
+        "enabled": true,
+        "focused": false,
+        "source": "accessibility",
+        "confidence": 1.0
+      },
+      {
+        "id": "visual_login_btn",
+        "type": "AXButton",
+        "position": [300.0, 500.0],
+        "size": [80.0, 40.0],
+        "title": "Login",
+        "description": "Blue login button",
+        "enabled": true,
+        "focused": false,
+        "source": "visual",
+        "confidence": 0.8,
+        "visual_data": {
+          "text": "Login",
+          "description": "Blue login button",
+          "color": "#007AFF",
+          "confidence": 0.8
+        }
+      }
+    ]
+}
