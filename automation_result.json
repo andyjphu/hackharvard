@@ -1,0 +1,104 @@
+{
+  "signals": {
+    "interactive_elements": [
+      "UISignal(id='AXButton_340.0_276.0', type='AXButton', position=(340.0, 276.0), size=(25.0, 22.0), current_value='', available_options=[], actions=[], title='', description='Search', enabled=True, focused=False)",
+      "UISignal(id='AXButton_529.0_310.0', type='AXButton', position=(529.0, 310.0), size=(0.0, 0.0), current_value='', available_options=[], actions=[], title='', description='', enabled=True, focused=False)",
+      "UISignal(id='AXButton_533.0_1215.0', type='AXButton', position=(533.0, 1215.0), size=(12.0, 30.0), current_value='', available_options=[], actions=[], title='', description='', enabled=True, focused=False)",
+      "UISignal(id='AXButton_533.0_310.0', type='AXButton', position=(533.0, 310.0), size=(12.0, 1.0), current_value='', available_options=[], actions=[], title='', description='', enabled=True, focused=False)",
+      "UISignal(id='AX_FEATURE_VOICEOVER', type='AXButton', position=(566.0, 393.5), size=(459.0, 42.0), current_value='', available_options=[], actions=[], title='', description='', enabled=True, focused=False)",
+      "UISignal(id='AX_FEATURE_ZOOM', type='AXButton', position=(566.0, 436.5), size=(459.0, 42.0), current_value='', available_options=[], actions=[], title='', description='', enabled=True, focused=False)",
+      "UISignal(id='AX_FEATURE_HOVERTEXT', type='AXButton', position=(566.0, 479.5), size=(459.0, 42.0), current_value='', available_options=[], actions=[], title='', description='', enabled=True, focused=False)",
+      "UISignal(id='AX_FEATURE_DISPLAY', type='AXButton', position=(566.0, 522.5), size=(459.0, 42.0), current_value='', available_options=[], actions=[], title='', description='', enabled=True, focused=False)",
+      "UISignal(id='AX_FEATURE_SPOKENCONTENT', type='AXButton', position=(566.0, 565.5), size=(459.0, 42.0), current_value='', available_options=[], actions=[], title='', description='', enabled=True, focused=False)",
+      "UISignal(id='AXTextField_338.0_272.0', type='AXTextField', position=(338.0, 272.0), size=(199.0, 30.0), current_value='', available_options=[], actions=[], title='', description='', enabled=True, focused=False)",
+      "UISignal(id='AXScrollArea_330.0_310.0', type='AXScrollArea', position=(330.0, 310.0), size=(215.0, 935.0), current_value='', available_options=[], actions=[], title='', description='', enabled=True, focused=False)",
+      "UISignal(id='AXScrollArea_546.0_272.0', type='AXScrollArea', position=(546.0, 272.0), size=(499.0, 973.0), current_value='', available_options=[], actions=[], title='', description='', enabled=True, focused=False)"
+    ],
+    "system_state": "SystemState(battery_level=37, power_source='battery', network_status='connected', time='07:57', memory_usage=78.4, cpu_usage=15.7)",
+    "application_context": {
+      "app_name": "System Settings",
+      "window_title": "Accessibility",
+      "focused_element": ""
+    },
+    "available_actions": [
+      "click",
+      "double_click",
+      "right_click",
+      "type",
+      "select",
+      "scroll",
+      "drag",
+      "hover",
+      "focus",
+      "press_key"
+    ],
+    "constraints": []
+  },
+  "knowledge": {
+    "web_search_results": [
+      {
+        "query": "optimize battery life best practices",
+        "results": "Mock search results for: optimize battery life best practices",
+        "confidence": 0.8
+      },
+      {
+        "query": "optimize battery life automation techniques",
+        "results": "Mock search results for: optimize battery life automation techniques",
+        "confidence": 0.8
+      },
+      {
+        "query": "optimize battery life common issues",
+        "results": "Mock search results for: optimize battery life common issues",
+        "confidence": 0.8
+      },
+      {
+        "query": "optimize battery life optimization tips",
+        "results": "Mock search results for: optimize battery life optimization tips",
+        "confidence": 0.8
+      }
+    ],
+    "domain_knowledge": {
+      "low_power_mode": "Reduces background activity and performance",
+      "screen_brightness": "Major battery drain factor",
+      "background_apps": "Can significantly impact battery life"
+    },
+    "best_practices": [
+      "Enable Low Power Mode when battery is low",
+      "Reduce screen brightness to save power",
+      "Close unnecessary background applications",
+      "Use 'Only on Battery' for Low Power Mode"
+    ],
+    "system_recommendations": []
+  },
+  "plan": {
+    "plan": [
+      {
+        "action": "tap",
+        "target": "AX_FEATURE_DISPLAY",
+        "reason": "Navigating to Display settings to potentially adjust screen brightness which is a major battery drain factor. System State: Battery Level 37%"
+      }
+    ],
+    "reasoning": "The current battery level is 37%, which is relatively low. Therefore, the automation plan prioritizes actions that can conserve battery life, starting with display settings.  The plan is designed to allow the user to manually reduce screen brightness, as it is the most impactful action to extend battery life from the provided UI elements. It assumes 'AX_FEATURE_DISPLAY' leads to screen brightness or display settings.",
+    "alternatives": [
+      {
+        "action": "Enable Low Power Mode",
+        "reason": "Low Power Mode can be enabled if it's an available element. Unfortunately, I lack the capability to identify such an option in the provided UI elements. This is based on external knowledge."
+      },
+      {
+        "action": "Close background apps",
+        "reason": "Although there is no explicit UI element for closing background apps, it could potentially be triggered through a specific shortcut or settings page. This also is something I cannot find with the UI elements available."
+      }
+    ],
+    "risks": [
+      {
+        "issue": "The 'AX_FEATURE_DISPLAY' button might not directly lead to screen brightness settings.",
+        "mitigation": "The user will have to navigate within the settings to find the screen brightness adjustment. Check other elements to find suitable power saving options."
+      },
+      {
+        "issue": "The available UI elements may not offer sufficient options for battery optimization.",
+        "mitigation": "The plan is limited by the available UI elements. If more elements are added in the future (e.g. to close background apps) the automation plan could be more efficient."
+      }
+    ],
+    "confidence": 0.6
+  }
+}
