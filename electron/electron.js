@@ -3,6 +3,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import screenshot from 'screenshot-desktop';
 import { PythonAgent } from './pythonagent.js'; // ← NEW
+import * as dotenv from 'dotenv';
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -32,6 +34,38 @@ function createWindow() {
 
   console.log("Loading dev server:", process.env.VITE_DEV_SERVER_URL);
   win.loadURL(process.env.VITE_DEV_SERVER_URL || "http://localhost:5173");
+
+  ipcMain.handle('stt/transcribe', async (_evt, { bytes, mime }) => {
+    if (!process.env.ELEVENLABS_API_KEY) {
+        throw new Error('ELEVENLABS_API_KEY missing');
+    }
+
+    // Recreate a Blob from bytes coming from the renderer
+    const uint8 = new Uint8Array(bytes);
+    const blob = new Blob([uint8], { type: mime || 'audio/webm' });
+
+    const form = new FormData();
+    form.append('model_id', 'scribe_v1');        // ElevenLabs STT model
+    form.append('diarize', 'false');             // turn on if you want speaker labels
+    form.append('language_code', 'eng');        // or "eng" etc.
+    form.append('tag_audio_events', 'false');    // laughter/applause tagging
+    form.append('file', blob, 'input.webm');
+
+    const res = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
+        method: 'POST',
+        headers: { 'xi-api-key': process.env.ELEVENLABS_API_KEY },
+        body: form
+    });
+
+    if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        throw new Error(`STT failed: ${res.status} ${res.statusText} ${txt}`);
+    }
+    const json = await res.json();
+    // API returns a structured object; "text" holds the transcript
+    // (fields depend on options like diarization/timestamps)
+    return json.text ?? json.transcript ?? JSON.stringify(json);
+  });
 
   // ========== Screenshot handler (unchanged) ==========
 

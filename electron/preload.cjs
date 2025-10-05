@@ -4,6 +4,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 const validSend = new Set([
   'minimize-window',
   'close-window',
+  'stt/transcribe'
   // (drop 'user-input' to avoid confusion with the new agent flow)
 ]);
 
@@ -13,6 +14,7 @@ const validInvoke = new Set([
   'debug/ping',
   'debug/echo',
   'capture-screenshot', // you already use this
+  'stt/transcribe'   // speech-to-text
 ]);
 
 const validOn = new Set([

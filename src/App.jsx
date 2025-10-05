@@ -7,8 +7,6 @@ function genId() {
 }
 
 export default function App() {
-  const [image, setImage] = useState(null);
-
   // Chat state
   const [messages, setMessages] = useState(() => ([
     { id: genId(), role: 'assistant', text: 'Hey, how can I help you today?' }
@@ -20,6 +18,7 @@ export default function App() {
   const [files, setFiles] = useState([]); // File[]
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState(null);
+  const [isTranscribing, setIsTranscribing] = useState(false);
 
   // Refs
   const listRef = useRef(null);
@@ -34,34 +33,34 @@ export default function App() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, awaitingResponse]);
 
-  // ★ NEW: stream Python agent events into the chat as “steps”
+  // Stream Python agent events (status/steps) into chat
   useEffect(() => {
     const formatEvent = (msg) => {
       const e = msg?.event;
       if (!e) return null;
 
-      if (e === 'bridge_ready') {
-        return `🧩 Python bridge ready (pid ${msg.pid})${msg.has_agent === false ? ' — agent_core not imported' : ''}`;
-      }
-      if (e === 'warn') return `⚠️ ${msg.message || 'Warning from agent bridge'}`;
-      if (e === 'started') return `🚀 Agent started\nGoal: ${msg.goal || '(none)'}${msg.target_app ? `\nTarget app: ${msg.target_app}` : ''}`;
+      // if (e === 'bridge_ready') {
+      //   return `🧩 Python bridge ready (pid ${msg.pid})${msg.has_agent === false ? ' — agent_core not imported' : ''}`;
+      // }
+      if (e === 'warn') return `${msg.message || 'Warning from agent bridge'}`;
+      if (e === 'started') return `Agent started in achieving "${msg.goal || '(none)'}"${msg.target_app ? ` in target app "${msg.target_app}"` : ''}`;
       if (e === 'selftest') return `🔬 Self-test\nPlatform: ${msg.platform}\nPython: ${String(msg.python_version).split('\n')[0]}\nGEMINI_API_KEY set: ${String(msg.env?.GEMINI_API_KEY_set)}\nagent_core import: ${String(msg.has_agent)}`;
       if (e === 'finished') {
         const r = msg.result || {};
-        return `🏁 Agent finished\nSuccess: ${String(r.success)}\nIterations: ${r.iterations ?? '—'}\nErrors: ${r.errors ?? '—'}\nProgress: ${typeof r.progress === 'number' ? r.progress.toFixed(2) : '—'}${r.message ? `\n${r.message}` : ''}`;
+        // return `🏁 Agent finished\nSuccess: ${String(r.success)}\nIterations: ${r.iterations ?? '—'}\nErrors: ${r.errors ?? '—'}\nProgress: ${typeof r.progress === 'number' ? r.progress.toFixed(2) : '—'}${r.message ? `\n${r.message}` : ''}`;
+        return 'Task successfully completed!'
       }
-      if (e === 'error') return `❌ ${msg.error || 'Unknown agent error'}`;
-      if (e === 'pong') return `🏓 pong`;
-      if (e === 'echo') return `🔁 echo: ${JSON.stringify(msg.data)}`;
+      if (e === 'error') return `${msg.error || 'Unknown agent error'}`;
+      if (e === 'pong') return `pong`;
+      if (e === 'echo') return `echo: ${JSON.stringify(msg.data)}`;
 
-      // Fallback: show raw event
-      return `ℹ️ ${e}: ${JSON.stringify(msg)}`;
+      return `${e}: ${JSON.stringify(msg)}`;
     };
 
     const onAgentEvent = (_evt, msg) => {
-      const text = formatEvent(msg);
-      if (!text) return;
-      setMessages(prev => [...prev, { id: genId(), role: 'assistant', text }]);
+      const t = formatEvent(msg);
+      if (!t) return;
+      setMessages(prev => [...prev, { id: genId(), role: 'assistant', text: t }]);
     };
 
     window.ipcrenderer.on('agent-event', onAgentEvent);
@@ -82,7 +81,7 @@ export default function App() {
         ...prev,
         { id: genId(), role: 'assistant', text: '⏳ Still working… you can type again if needed.' }
       ]);
-    }, 300000);
+    }, 300000); // 5 min guard
   };
   const unlockComposer = () => {
     clearTimeout(responseTimeoutRef.current);
@@ -102,6 +101,25 @@ export default function App() {
     setFiles(prev => prev.filter((_, i) => i !== idx));
   };
 
+  // ===== STT (ElevenLabs via main IPC) =====
+  async function transcribeAudioBlob(blob) {
+    if (!blob) return '';
+    const buf = await blob.arrayBuffer();
+    const bytes = Array.from(new Uint8Array(buf)); // serializable for IPC
+
+    setIsTranscribing(true);
+    try {
+      const res = await window.ipcrenderer.invoke('stt/transcribe', {
+        bytes,
+        mime: blob.type || 'audio/webm',
+      });
+      const transcript = (typeof res === 'string') ? res : (res?.text ?? '');
+      return transcript || '';
+    } finally {
+      setIsTranscribing(false);
+    }
+  }
+
   // ===== Mic handling =====
   const startRecording = async () => {
     try {
@@ -117,6 +135,19 @@ export default function App() {
         const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         setAudioBlob(blob);
         stream.getTracks().forEach(t => t.stop());
+
+        // Auto-transcribe immediately, then place text into the input
+        (async () => {
+          try {
+            const t = await transcribeAudioBlob(blob);
+            if (t) setText(prev => (prev ? `${prev} ${t}` : t));
+            // Optional: clear the audio chip since we've converted it
+            // setAudioBlob(null);
+          } catch (e) {
+            console.error('ElevenLabs STT error:', e);
+            setMessages(prev => [...prev, { id: genId(), role: 'assistant', text: `🗣️ STT failed: ${e?.message || 'unknown error'}` }]);
+          }
+        })();
       };
 
       mr.start();
@@ -127,41 +158,48 @@ export default function App() {
     }
   };
 
-  const stopRecording = () => {
+  const stopRecording = async () => {
     const mr = mediaRecorderRef.current;
     if (mr && mr.state !== 'inactive') mr.stop();
     setIsRecording(false);
   };
 
   const toggleRecording = () => {
-    if (awaitingResponse) return;
+    if (awaitingResponse || isTranscribing) return;
     if (isRecording) stopRecording();
     else startRecording();
   };
 
-  // ===== Send handling (invoke/handle path) =====
+  // ===== Send handling =====
   const handleSend = async () => {
     if (awaitingResponse) return;
     if (!text && files.length === 0 && !audioBlob) return;
 
-    // Optimistically add the user's message
+    // If there’s audio but no text yet (user pressed send quickly), do a quick STT now
+    let finalText = text;
+    if (!finalText && audioBlob && !isTranscribing) {
+      try { finalText = await transcribeAudioBlob(audioBlob); } catch {}
+    }
+
+    // Post the user's message
     const userMsg = {
       id: genId(),
       role: 'user',
-      text: text || '',
+      text: finalText || '',
       files: files.map(f => ({ name: f.name, type: f.type, size: f.size })),
       hasAudio: !!audioBlob,
     };
     setMessages(prev => [...prev, userMsg]);
 
-    // Lock UI while waiting
+    // Lock UI while agent runs
     lockComposer();
 
     try {
-      // ★ CHANGED: call your Python-backed agent
-        await window.ipcrenderer.invoke('agent/run', {
-          goal: text, target_app: null, max_iterations: 3,
-        });
+      await window.ipcrenderer.invoke('agent/run', {
+        goal: finalText || text,
+        target_app: null,
+        max_iterations: 3,
+      });
     } catch (e) {
       setMessages(prev => [
         ...prev,
@@ -171,6 +209,7 @@ export default function App() {
       // Clear composer + unlock
       setText('');
       setFiles([]);
+      // Keep audioBlob if you want to show the chip; or clear it now:
       setAudioBlob(null);
       if (isRecording) stopRecording();
       unlockComposer();
@@ -264,10 +303,10 @@ export default function App() {
           </div>
         )}
 
-        {/* Audio clip indicator (pre-send) */}
+        {/* Audio clip indicator (pre-send) + transcribe hint */}
         {audioBlob && !awaitingResponse && (
           <div className="mt-2 text-xs text-white/90">
-            🎙️ Recorded audio ready ({Math.round(audioBlob.size / 1024)} KB)
+            {isTranscribing && <span className="ml-2 opacity-80">⏳ Transcribing…</span>}
           </div>
         )}
 
@@ -282,7 +321,7 @@ export default function App() {
               className="rounded-xl hover:bg-white/10 transition p-2"
               title="Attach files"
               aria-label="Attach files"
-              disabled={awaitingResponse}
+              disabled={awaitingResponse || isTranscribing}
             >
               <Paperclip className="w-5 h-5 text-white" />
             </button> */}
@@ -292,7 +331,7 @@ export default function App() {
               className="hidden"
               multiple
               onChange={handleFilesSelected}
-              disabled={awaitingResponse}
+              disabled={awaitingResponse || isTranscribing}
             />
 
             {/* Text input */}
@@ -300,10 +339,14 @@ export default function App() {
               type="text"
               value={text}
               onChange={(e) => setText(e.target.value)}
-              placeholder={awaitingResponse ? 'Waiting for reply…' : 'Type your message…'}
+              placeholder={
+                awaitingResponse
+                  ? 'Waiting for reply…'
+                  : (isTranscribing ? 'Transcribing…' : 'Type your message…')
+              }
               className="flex-1 w-1/2 bg-transparent text-sm outline-none text-white placeholder-white/60 px-1 py-2"
               aria-label="Message"
-              disabled={awaitingResponse}
+              disabled={awaitingResponse || isTranscribing}
             />
 
             {/* Mic toggle */}
@@ -314,7 +357,7 @@ export default function App() {
               title={isRecording ? 'Stop recording' : 'Start recording'}
               aria-pressed={isRecording}
               aria-label={isRecording ? 'Stop recording' : 'Start recording'}
-              disabled={awaitingResponse}
+              disabled={awaitingResponse || isTranscribing}
             >
               {isRecording ? (
                 <MicOff className="w-5 h-5 text-white" />
@@ -323,13 +366,17 @@ export default function App() {
               )}
             </button>
 
-            {/* Send */}
+            {/* Send (disabled until STT is done) */}
             <button
               type="submit"
               className="px-3 py-2 rounded-xl bg-white/15 hover:bg-white/25 transition flex items-center gap-1 disabled:opacity-60"
               title="Send"
               aria-label="Send message"
-              disabled={awaitingResponse || (!text && files.length === 0 && !audioBlob)}
+              disabled={
+                awaitingResponse ||
+                isTranscribing ||           // <-- keep disabled while STT runs
+                (!text && files.length === 0 && !audioBlob)
+              }
             >
               <Send className="w-5 h-5 text-white" />
               <span className="sr-only">Send</span>
