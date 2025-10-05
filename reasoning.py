@@ -10,6 +10,11 @@ import google.generativeai as genai
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 from dotenv import load_dotenv
+from macos_settings_map import (
+    find_settings_panel,
+    get_panel_elements,
+    MACOS_SETTINGS_MAP,
+)
 
 # Load environment variables
 load_dotenv()
@@ -44,6 +49,7 @@ class ReasoningEngine:
         self.long_range_plan = None
         self.plan_created = False
         self._last_gemini_request_time = 0.0  # Track last API call for throttling
+        self.settings_map = MACOS_SETTINGS_MAP  # macOS settings mapping
 
     def _throttle_gemini_request(self):
         """Throttle Gemini API requests to avoid 429 rate limits"""
@@ -339,10 +345,24 @@ class ReasoningEngine:
         visual_analysis = perception.get("visual_analysis")
         correlations = perception.get("correlations")
 
+        # Get settings panel information for the goal
+        settings_info = find_settings_panel(goal)
+        panel_context = ""
+        if settings_info.get("panel"):
+            panel_data = get_panel_elements(settings_info["panel"])
+            panel_context = f"""
+MACOS SETTINGS CONTEXT:
+- Target Panel: {settings_info['panel']}
+- Confidence: {settings_info['confidence']}
+- Available Elements in this panel: {list(panel_data.get('elements', {}).keys())}
+"""
+
         return f"""
 You are an autonomous AI agent with advanced visual and accessibility perception capabilities.
 
 GOAL: {goal}
+
+{panel_context}
 
 CURRENT ENVIRONMENT:
 - Accessibility UI Elements: {len(ui_signals)}

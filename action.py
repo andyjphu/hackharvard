@@ -7,6 +7,8 @@ import time
 import atomacos as atomac
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
+from PIL import Image
+import io
 
 
 @dataclass
@@ -28,10 +30,12 @@ class ActionEngine:
     - System actions (keyboard shortcuts, system calls)
     - Action validation and error handling
     - Action chaining and sequencing
+    - Visual verification of actions
     """
 
     def __init__(self):
         self.action_history = []
+        self.visual_verification_enabled = True
         self.max_retries = 3
         self.action_timeout = 10.0
 
@@ -141,11 +145,36 @@ class ActionEngine:
             if not element:
                 return {"success": False, "error": f"Element not found: {target}"}
 
+            # Visual verification: Capture before state
+            before_state = None
+            if self.visual_verification_enabled:
+                before_state = self.capture_before_screenshot(target)
+
             # Try multiple click methods
             try:
                 # Method 1: Standard AXPress (check if method exists first)
                 if hasattr(element, "AXPress"):
                     element.AXPress()
+
+                    # Visual verification: Check if click actually happened
+                    if (
+                        self.visual_verification_enabled
+                        and before_state
+                        and before_state.get("success")
+                    ):
+                        verification_result = self.verify_action_visually(
+                            target, before_state
+                        )
+                        if not verification_result.get("verified"):
+                            print(
+                                f"      ⚠️  Click may have failed - no visual change detected"
+                            )
+                            return {
+                                "success": False,
+                                "error": f"No visual change detected after click",
+                                "verification": verification_result,
+                            }
+
                     return {"success": True, "result": f"Clicked {target}"}
                 else:
                     raise AttributeError("AXPress method not available")
@@ -1014,3 +1043,219 @@ class ActionEngine:
             ),
             "action_types": list(set(action.action for action in self.action_history)),
         }
+
+    def _crop_element_region(
+        self,
+        screenshot_path: str,
+        element_position: tuple,
+        element_size: tuple,
+        padding: int = 20,
+    ) -> Image.Image:
+        """
+        Crop screenshot to the region around an element.
+
+        Args:
+            screenshot_path: Path to the screenshot
+            element_position: (x, y) position of element
+            element_size: (width, height) size of element
+            padding: Extra pixels around element
+
+        Returns:
+            Cropped PIL Image
+        """
+        try:
+            img = Image.open(screenshot_path)
+            x, y = element_position
+            width, height = element_size
+
+            # Calculate crop box with padding
+            left = max(0, int(x - padding))
+            top = max(0, int(y - padding))
+            right = min(img.width, int(x + width + padding))
+            bottom = min(img.height, int(y + height + padding))
+
+            cropped = img.crop((left, top, right, bottom))
+            return cropped
+        except Exception as e:
+            print(f"      ⚠️  Error cropping image: {e}")
+            return None
+
+    def _compare_images(
+        self, img1: Image.Image, img2: Image.Image, threshold: float = 0.05
+    ) -> Dict[str, Any]:
+        """
+        Compare two images to detect visual changes.
+
+        Args:
+            img1: First image (before action)
+            img2: Second image (after action)
+            threshold: Percentage of pixels that must differ (0.0-1.0)
+
+        Returns:
+            Dict with comparison results
+        """
+        try:
+            # Ensure images are same size
+            if img1.size != img2.size:
+                img2 = img2.resize(img1.size)
+
+            # Convert to RGB if needed
+            if img1.mode != "RGB":
+                img1 = img1.convert("RGB")
+            if img2.mode != "RGB":
+                img2 = img2.convert("RGB")
+
+            # Get pixel data
+            pixels1 = list(img1.getdata())
+            pixels2 = list(img2.getdata())
+
+            # Count different pixels
+            total_pixels = len(pixels1)
+            different_pixels = sum(1 for p1, p2 in zip(pixels1, pixels2) if p1 != p2)
+
+            difference_percentage = different_pixels / total_pixels
+            changed = difference_percentage > threshold
+
+            return {
+                "changed": changed,
+                "difference_percentage": difference_percentage,
+                "different_pixels": different_pixels,
+                "total_pixels": total_pixels,
+            }
+        except Exception as e:
+            print(f"      ⚠️  Error comparing images: {e}")
+            return {"changed": False, "error": str(e)}
+
+    def capture_before_screenshot(
+        self, element_id: str, target_app: str = "System Settings"
+    ) -> Dict[str, Any]:
+        """
+        Capture screenshot before action for later comparison.
+
+        Args:
+            element_id: ID of the element
+            target_app: Target application name
+
+        Returns:
+            Dict with before state data
+        """
+        try:
+            # Find the element to get its position and size
+            element = self._find_element(element_id)
+            if not element:
+                return {"success": False, "reason": "Element not found"}
+
+            pos = getattr(element, "AXPosition", None)
+            size = getattr(element, "AXSize", None)
+
+            if not pos or not size:
+                return {"success": False, "reason": "No position/size data"}
+
+            element_position = (pos.x, pos.y)
+            element_size = (size.width, size.height)
+
+            # Take screenshot
+            from model.gemini import VLMAnalyzer
+
+            vlm = VLMAnalyzer()
+
+            screenshot = vlm.capture_screenshot(target_app)
+            if not screenshot:
+                return {"success": False, "reason": "Screenshot failed"}
+
+            # Crop to element region
+            cropped = self._crop_element_region(
+                screenshot, element_position, element_size
+            )
+            if not cropped:
+                return {"success": False, "reason": "Crop failed"}
+
+            # Save for debugging
+            cropped.save("before_action_crop.png")
+            print(f"      💾 Saved before_action_crop.png")
+
+            return {
+                "success": True,
+                "cropped_image": cropped,
+                "position": element_position,
+                "size": element_size,
+            }
+        except Exception as e:
+            return {"success": False, "reason": f"Error: {e}"}
+
+    def verify_action_visually(
+        self,
+        element_id: str,
+        before_state: Dict[str, Any],
+        target_app: str = "System Settings",
+    ) -> Dict[str, Any]:
+        """
+        Verify that an action actually happened by comparing screenshots.
+
+        Args:
+            element_id: ID of the element that was clicked
+            before_state: Before state from capture_before_screenshot
+            target_app: Target application name
+
+        Returns:
+            Dict with verification results
+        """
+        try:
+            print(f"      🔍 Visually verifying action on {element_id}")
+
+            if not before_state.get("success"):
+                return {"verified": False, "reason": "No before state"}
+
+            before_crop = before_state["cropped_image"]
+            element_position = before_state["position"]
+            element_size = before_state["size"]
+
+            # Wait a moment for action to complete
+            time.sleep(0.5)
+
+            # Take screenshot after action
+            from model.gemini import VLMAnalyzer
+
+            vlm = VLMAnalyzer()
+
+            after_screenshot = vlm.capture_screenshot(target_app)
+            if not after_screenshot:
+                print(f"      ⚠️  Could not capture after screenshot")
+                return {"verified": False, "reason": "Screenshot failed"}
+
+            # Crop to same region
+            after_crop = self._crop_element_region(
+                after_screenshot, element_position, element_size
+            )
+            if not after_crop:
+                return {"verified": False, "reason": "Crop failed"}
+
+            # Save cropped image for debugging
+            after_crop.save("after_action_crop.png")
+            print(f"      💾 Saved after_action_crop.png")
+
+            # Compare images
+            comparison = self._compare_images(before_crop, after_crop)
+
+            if comparison.get("changed"):
+                print(
+                    f"      ✅ Visual change detected: {comparison['difference_percentage']:.2%} pixels changed"
+                )
+                return {
+                    "verified": True,
+                    "reason": "Visual change detected",
+                    "comparison": comparison,
+                }
+            else:
+                print(
+                    f"      ❌ No visual change detected: {comparison['difference_percentage']:.2%} pixels changed"
+                )
+                return {
+                    "verified": False,
+                    "reason": "No visual change detected",
+                    "comparison": comparison,
+                }
+
+        except Exception as e:
+            print(f"      ❌ Visual verification error: {e}")
+            return {"verified": False, "reason": f"Error: {e}"}
