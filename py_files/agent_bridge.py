@@ -3,14 +3,21 @@
 import sys, json, traceback, os
 from agent_core import AgentCore
 
-agent = AgentCore()
-
 def send(obj):
     sys.stdout.write(json.dumps(obj, default=str) + "\n")
     sys.stdout.flush()
 
+def bridge_emit(payload: dict):
+    # Everything the agent emits as a "step" comes through here
+    # You can enrich/add timestamps if you want
+    send({"event": "step", **payload})
+
 def main():
     send({"event":"bridge_ready", "pid": os.getpid()})
+
+    # 👇 pass the bridge emitter into the agent
+    agent = AgentCore(event_cb=bridge_emit)
+
     for raw in sys.stdin:
         raw = raw.strip()
         if not raw:
@@ -28,13 +35,8 @@ def main():
                 goal = msg.get("goal") or ""
                 target = msg.get("target_app")
                 max_iter = int(msg.get("max_iterations", 5))
-
                 send({"event":"started", "id": req_id, "goal": goal, "target_app": target})
-
-                result = agent.run_autonomous_loop(
-                    goal=goal, target_app=target, max_iterations=max_iter
-                )
-
+                result = agent.run_autonomous_loop(goal=goal, target_app=target, max_iterations=max_iter)
                 send({"event":"finished", "id": req_id, "result": result})
                 continue
 
@@ -45,11 +47,7 @@ def main():
             send({"event":"error", "id": req_id, "error": f"Unknown op: {op}"})
 
         except Exception as e:
-            send({
-                "event":"error",
-                "error": str(e),
-                "trace": traceback.format_exc()
-            })
+            send({"event":"error","error": str(e),"trace": traceback.format_exc()})
 
 if __name__ == "__main__":
     main()

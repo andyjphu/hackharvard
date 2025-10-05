@@ -39,6 +39,27 @@ export default function App() {
       const e = msg?.event;
       if (!e) return null;
 
+
+      if (e === 'step') {
+        const k = msg.kind;
+        // short, readable one-liners
+        if (k === 'focus.result')      return msg.success ? `🎯 Focused ${msg.app}` : `⚠️ Couldn’t focus ${msg.app}`;
+        if (k === 'plan.start')        return `Planning steps for ${msg.app || 'current app'}…`;
+        if (k === 'plan.created')      return `Plan created (${msg.steps} steps) → end: ${msg.end_state || '—'}`;
+        if (k === 'loop.iteration')    return `Iteration ${msg.n}`;
+        if (k === 'perceive.start')    return `Observing UI…`;
+        if (k === 'perceive.end')      return `${msg.ui} UI | ${msg.visual} visual | ${msg.correlated} matched`;
+        if (k === 'reason.start')      return `Reasoning…`;
+        if (k === 'reason.end')        return `Plan ready (conf ${Number(msg.confidence || 0).toFixed(2)}, actions ${msg.actions || 0})`;
+        if (k === 'action.execute')    return `Step ${msg.index}: ${msg.action || 'action'} ${msg.target ? '→ ' + msg.target : ''}`;
+        if (k === 'action.result')     return msg.success ? `Step ${msg.index} done` : `Step ${msg.index} failed`;
+        if (k === 'action.partial_return') return `🔄 Observing after step ${msg.completed}/${msg.total}…`;
+        if (k === 'goal.achieved')     return `🎉 Goal achieved: ${msg.goal}`;
+        if (k === 'loop.max_iterations') return `⏹️ Stopped at max iterations (${msg.iterations})`;
+        // fallback
+        return `ℹ️ ${k}: ${JSON.stringify(msg)}`;
+      }
+
       // if (e === 'bridge_ready') {
       //   return `🧩 Python bridge ready (pid ${msg.pid})${msg.has_agent === false ? ' — agent_core not imported' : ''}`;
       // }
