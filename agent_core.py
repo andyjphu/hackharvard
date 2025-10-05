@@ -1015,9 +1015,14 @@ class AgentCore:
 
                     # Check UI element indicators with state verification
                     for signal in ui_signals:
-                        title = signal.get("title", "").lower()
-                        current_value = signal.get("current_value", "").lower()
-                        description = signal.get("description", "").lower()
+                        # Safely convert to lowercase, handling non-string types
+                        title = str(signal.get("title", "")).lower()
+                        current_value_raw = signal.get("current_value", "")
+                        try:
+                            current_value = str(current_value_raw).lower()
+                        except AttributeError:
+                            current_value = str(current_value_raw)
+                        description = str(signal.get("description", "")).lower()
 
                         # Check if indicator matches element title/description
                         if (
@@ -1058,13 +1063,9 @@ class AgentCore:
                                 print(f"   ✅ Found completion indicator: {indicator}")
                                 return True
 
-                # Check success criteria based on confidence and context
-                confidence = reasoning_result.get("confidence", 0)
-                if confidence > 0.8 and success_criteria:
-                    print(
-                        f"   ✅ High confidence ({confidence:.2f}) with success criteria met"
-                    )
-                    return True
+                # Don't declare success just based on confidence
+                # High confidence means we know what to do, not that we've done it
+                # The goal is only achieved if we find actual completion indicators
 
         # Fallback to original logic if no long-range plan
         goal_lower = goal.lower()
@@ -1080,9 +1081,14 @@ class AgentCore:
         if "battery" in goal_lower and "optimize" in goal_lower:
             ui_signals = perception_data.get("ui_signals", [])
             for signal in ui_signals:
-                if "low_power" in signal.get("id", "").lower():
+                if "low_power" in str(signal.get("id", "")).lower():
                     current_value = signal.get("current_value", "")
-                    if current_value.lower() in ["on", "always", "only on battery"]:
+                    current_value_str = (
+                        str(current_value).lower()
+                        if isinstance(current_value, str)
+                        else str(current_value)
+                    )
+                    if current_value_str in ["on", "always", "only on battery"]:
                         return True
 
         # Search goals
@@ -1100,7 +1106,7 @@ class AgentCore:
         if any(keyword in goal_lower for keyword in ["video", "show", "watch", "play"]):
             ui_signals = perception_data.get("ui_signals", [])
             for signal in ui_signals:
-                title = signal.get("title", "").lower()
+                title = str(signal.get("title", "")).lower()
                 if any(
                     keyword in title
                     for keyword in ["play", "pause", "full screen", "seek slider"]
