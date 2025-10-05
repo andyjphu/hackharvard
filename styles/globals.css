@@ -4,8 +4,8 @@
 :root {
   font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
-  width: 300px;
-  height: 350px;
+  width: 400px;
+  height: 400px;
 
   color-scheme: light dark;
   color: rgba(255, 255, 255, 0.87);
@@ -84,8 +84,8 @@ body {
 }
 
 .glass-container {
-  width: 300px;
-  height: 350px;
+  width: 400px;
+  height: 400px;
 
   /* Darker film + subtle gradient for readability on busy wallpapers */
   background:

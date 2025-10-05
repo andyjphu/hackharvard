@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import './App.css';
-import { X, Minus, Paperclip, Mic, MicOff, Send } from 'lucide-react';
+import { X, Minus, Mic, MicOff, Send } from 'lucide-react';
 
 function genId() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -20,6 +20,11 @@ export default function App() {
   const [audioBlob, setAudioBlob] = useState(null);
   const [isTranscribing, setIsTranscribing] = useState(false);
 
+  // TTS controls
+  const [voiceOn, setVoiceOn] = useState(true);
+  const audioRef = useRef(null);
+  const lastSpokenIdRef = useRef(null);
+
   // Refs
   const listRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -33,7 +38,7 @@ export default function App() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, awaitingResponse]);
 
-  // Stream Python agent events (status/steps) into chat
+  // Human-friendly event text for steps
   useEffect(() => {
     function formatCountWord(n) {
       if (n <= 0 || n == null) return 'nothing';
@@ -42,7 +47,6 @@ export default function App() {
       return 'many things';
     }
 
-    // map low-level action names to human words
     function humanizeAction(action) {
       const map = {
         click: 'click',
@@ -58,100 +62,65 @@ export default function App() {
     }
 
     function formatEvent(msg) {
-      // fall back to your existing handling if not a step
       if (msg?.event !== 'step') {
-        if (msg?.event === 'started') return `Okay — I’ll do: “${msg.goal || 'your task'}”.`;
-        if (msg?.event === 'finished') return `All set! I’m done.`;
-        if (msg?.event === 'error') return `Hmm, something went wrong. I’ll try another way.`;
+        if (msg?.event === 'started')   return `Okay — I’ll do: “${msg.goal || 'your task'}”.`;
+        if (msg?.event === 'finished')  return `All set! I’m done.`;
+        if (msg?.event === 'error')     return `Hmm, something went wrong. I’ll try another way.`;
         return null;
       }
 
       const k = msg.kind;
 
-      // if (!simpleMode) {
-      //   // your original terse mapping (kept if you want a dev mode)
-      //   if (k === 'focus.result')      return msg.success ? `🎯 Focused ${msg.app}` : `⚠️ Couldn’t focus ${msg.app}`;
-      //   if (k === 'plan.start')        return `Planning steps for ${msg.app || 'current app'}…`;
-      //   if (k === 'plan.created')      return `Plan created (${msg.steps} steps) → end: ${msg.end_state || '—'}`;
-      //   if (k === 'loop.iteration')    return `Iteration ${msg.n}`;
-      //   if (k === 'perceive.start')    return `Observing UI…`;
-      //   if (k === 'perceive.end')      return `${msg.ui} UI | ${msg.visual} visual | ${msg.correlated} matched`;
-      //   if (k === 'reason.start')      return `Reasoning…`;
-      //   if (k === 'reason.end')        return `Plan ready (conf ${Number(msg.confidence || 0).toFixed(2)}, actions ${msg.actions || 0})`;
-      //   if (k === 'action.execute')    return `Step ${msg.index}: ${msg.action || 'action'} ${msg.target ? '→ ' + msg.target : ''}`;
-      //   if (k === 'action.result')     return msg.success ? `Step ${msg.index} done` : `Step ${msg.index} failed`;
-      //   if (k === 'action.partial_return') return `🔄 Observing after step ${msg.completed}/${msg.total}…`;
-      //   if (k === 'goal.achieved')     return `🎉 Goal achieved: ${msg.goal}`;
-      //   if (k === 'loop.max_iterations') return `⏹️ Stopped at max iterations (${msg.iterations})`;
-      //   return `ℹ️ ${k}: ${JSON.stringify(msg)}`;
-      // }
-
-      // SIMPLE MODE — friendly, short sentences
       if (k === 'focus.result') {
         return msg.success
           ? `I’ve opened ${msg.app}.`
           : `I couldn’t open ${msg.app}. I’ll try a different way.`;
       }
-
       if (k === 'plan.start') {
         return `I’m planning the steps.`;
       }
-
       if (k === 'plan.created') {
         const count = msg.steps ?? 0;
         return count > 0
           ? `I have a short plan with ${count} step${count > 1 ? 's' : ''}.`
           : `I’ll take it one step at a time.`;
       }
-
       if (k === 'loop.iteration') {
         return `Working… (round ${msg.n}).`;
       }
-
       if (k === 'perceive.start') {
         return `I’m looking at what’s on the screen.`;
       }
-
       if (k === 'perceive.end') {
-        // translate counts into gentle phrases
         const found = formatCountWord(Number(msg.ui || 0) + Number(msg.visual || 0));
         return `I can see the screen now — I found ${found}.`;
       }
-
       if (k === 'reason.start') {
         return `I’m deciding the next best step.`;
       }
-
       if (k === 'reason.end') {
         const a = msg.actions ?? 0;
         if (a <= 0) return `I know what to do next.`;
         if (a === 1) return `I’ll do the next step now.`;
         return `I’ve got the next few steps ready.`;
       }
-
       if (k === 'action.execute') {
         const verb = humanizeAction(msg.action);
-        // e.g. “Now I’ll click ‘Settings’.”
         if (msg.target) return `Now I’ll ${verb} “${msg.target}”.`;
         return `Now I’ll ${verb}.`;
       }
-
       if (k === 'action.result') {
         return msg.success ? `That worked.` : `That didn’t work — I’ll try another way.`;
       }
-
       if (k === 'action.partial_return') {
         return `Checking how that went…`;
       }
-
       if (k === 'goal.achieved') {
         return `All set — I finished that task.`;
       }
-
       if (k === 'loop.max_iterations') {
         return `I couldn’t finish this time. Want me to keep trying?`;
       }
-
       return null;
     }
 
@@ -165,11 +134,63 @@ export default function App() {
     return () => window.ipcrenderer.off('agent-event', onAgentEvent);
   }, []);
 
-  // Window controls
+  // ---------- TTS helpers (ElevenLabs via main IPC) ----------
+  function playBase64Audio(base64, mime = 'audio/mpeg') {
+    try {
+      const bstr = atob(base64);
+      const bytes = new Uint8Array(bstr.length);
+      for (let i = 0; i < bstr.length; i++) bytes[i] = bstr.charCodeAt(i);
+      const blob = new Blob([bytes], { type: mime });
+      const url = URL.createObjectURL(blob);
+
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+        audioRef.current = null;
+      }
+
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.onended = () => URL.revokeObjectURL(url);
+      audio.play().catch(() => URL.revokeObjectURL(url));
+    } catch (e) {
+      console.error('Audio playback failed:', e);
+    }
+  }
+
+  async function speak(text) {
+    if (!voiceOn || !text) return;
+    try {
+      const { audioBase64, mime } = await window.ipcrenderer.invoke('tts/speak', { text });
+      if (audioBase64) playBase64Audio(audioBase64, mime);
+    } catch (e) {
+      console.error('TTS failed:', e);
+    }
+  }
+
+  function stopSpeech() {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = '';
+      audioRef.current = null;
+    }
+  }
+
+  // Auto-speak the latest assistant message once
+  useEffect(() => {
+    if (!voiceOn) return;
+    const last = [...messages].reverse().find(m => m.role === 'assistant' && m.text);
+    if (!last) return;
+    if (lastSpokenIdRef.current === last.id) return;
+    lastSpokenIdRef.current = last.id;
+    speak(last.text);
+  }, [messages, voiceOn]);
+
+  // ---------- Window controls ----------
   const handleMinimize = () => window.ipcrenderer.send('minimize-window');
   const handleClose = () => window.ipcrenderer.send('close-window');
 
-  // Lock / unlock composer with a safety timeout
+  // ---------- Lock / unlock composer ----------
   const lockComposer = () => {
     setAwaitingResponse(true);
     clearTimeout(responseTimeoutRef.current);
@@ -179,7 +200,7 @@ export default function App() {
         ...prev,
         { id: genId(), role: 'assistant', text: '⏳ Still working… you can type again if needed.' }
       ]);
-    }, 300000); // 5 min guard
+    }, 300000);
   };
   const unlockComposer = () => {
     clearTimeout(responseTimeoutRef.current);
@@ -187,7 +208,7 @@ export default function App() {
     setAwaitingResponse(false);
   };
 
-  // ===== File handling =====
+  // ---------- File handling ----------
   const handleChooseFiles = () => fileInputRef.current?.click();
   const handleFilesSelected = (e) => {
     const selected = Array.from(e.target.files || []);
@@ -199,7 +220,7 @@ export default function App() {
     setFiles(prev => prev.filter((_, i) => i !== idx));
   };
 
-  // ===== STT (ElevenLabs via main IPC) =====
+  // ---------- STT (ElevenLabs via main IPC) ----------
   async function transcribeAudioBlob(blob) {
     if (!blob) return '';
     const buf = await blob.arrayBuffer();
@@ -218,7 +239,7 @@ export default function App() {
     }
   }
 
-  // ===== Mic handling =====
+  // ---------- Mic handling ----------
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -234,13 +255,10 @@ export default function App() {
         setAudioBlob(blob);
         stream.getTracks().forEach(t => t.stop());
 
-        // Auto-transcribe immediately, then place text into the input
         (async () => {
           try {
             const t = await transcribeAudioBlob(blob);
             if (t) setText(prev => (prev ? `${prev} ${t}` : t));
-            // Optional: clear the audio chip since we've converted it
-            // setAudioBlob(null);
           } catch (e) {
             console.error('ElevenLabs STT error:', e);
             setMessages(prev => [...prev, { id: genId(), role: 'assistant', text: `🗣️ STT failed: ${e?.message || 'unknown error'}` }]);
@@ -268,18 +286,17 @@ export default function App() {
     else startRecording();
   };
 
-  // ===== Send handling =====
+  // ---------- Send handling ----------
   const handleSend = async () => {
     if (awaitingResponse) return;
     if (!text && files.length === 0 && !audioBlob) return;
 
-    // If there’s audio but no text yet (user pressed send quickly), do a quick STT now
+    // If audio exists but no text yet, transcribe now
     let finalText = text;
     if (!finalText && audioBlob && !isTranscribing) {
       try { finalText = await transcribeAudioBlob(audioBlob); } catch {}
     }
 
-    // Post the user's message
     const userMsg = {
       id: genId(),
       role: 'user',
@@ -289,7 +306,6 @@ export default function App() {
     };
     setMessages(prev => [...prev, userMsg]);
 
-    // Lock UI while agent runs
     lockComposer();
 
     try {
@@ -304,10 +320,8 @@ export default function App() {
         { id: genId(), role: 'assistant', text: `⚠️ ${e?.message || 'Failed to run agent.'}` }
       ]);
     } finally {
-      // Clear composer + unlock
       setText('');
       setFiles([]);
-      // Keep audioBlob if you want to show the chip; or clear it now:
       setAudioBlob(null);
       if (isRecording) stopRecording();
       unlockComposer();
@@ -322,8 +336,24 @@ export default function App() {
   return (
     <>
       <div className="glass-container flex flex-col px-4 backdrop-blur-3xl">
-        {/* Window controls */}
-        <div className="w-full flex justify-end pt-2">
+        {/* Header: window + voice controls */}
+        <div className="w-full flex items-center justify-between pt-2">
+          <div className="flex items-center gap-3 text-xs text-white/90">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={voiceOn}
+                onChange={(e) => setVoiceOn(e.target.checked)}
+              />
+              Voice
+            </label>
+            <button
+              onClick={stopSpeech}
+              className="text-white/80 hover:text-white px-2 py-1 rounded bg-white/10"
+            >
+              Stop voice
+            </button>
+          </div>
           <div className="flex backdrop-blur-3xl bg-sky-300/[0.15] px-2 rounded">
             <div>
               <Minus onClick={handleMinimize} className="w-[18px] text-white mr-2 hover:w-[22px] transition-all cursor-pointer" />
@@ -332,7 +362,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* ===== Messages list ===== */}
+        {/* Messages */}
         <div ref={listRef} className="messages_list flex-1 mt-3 overflow-y-auto pr-1 space-y-2">
           {messages.map(m => (
             <div key={m.id} className={m.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
@@ -340,12 +370,11 @@ export default function App() {
                 className={
                   m.role === 'user'
                     ? 'max-w-[85%] bg-sky-300/20 text-white text-sm px-3 py-2 rounded-2xl rounded-tr-sm ring-1 ring-white/10'
-                    : 'max-w-[85%] bg-white/10 text-white text-sm px-3 py-2 rounded-2xl rounded-tl-sm ring-1 ring-white/10'
+                    : 'max-w-[85%] bg-white/10 text-white text-lg font-light px-3 py-2 rounded-2xl rounded-tl-sm ring-1 ring-white/10'
                 }
               >
                 <p className="whitespace-pre-wrap text-left">{m.text}</p>
 
-                {/* Attached files summary */}
                 {m.files?.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1">
                     {m.files.map((f, i) => (
@@ -356,15 +385,13 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Audio presence */}
                 {m.hasAudio && (
-                  <div className="mt-2 text-[11px] opacity-80">🎙️ Audio attached</div>
+                  <div className="mt-2 text-[11px] opacity-80">Audio attached</div>
                 )}
               </div>
             </div>
           ))}
 
-          {/* Assistant thinking indicator */}
           {awaitingResponse && (
             <div className="flex justify-start">
               <div className="max-w-[70%] bg-white/10 text-white text-sm px-3 py-2 rounded-2xl rounded-tl-sm ring-1 ring-white/10">
@@ -379,7 +406,7 @@ export default function App() {
           )}
         </div>
 
-        {/* Selected file chips (pre-send) */}
+        {/* Selected file chips */}
         {files.length > 0 && !awaitingResponse && (
           <div className="mt-2 flex flex-wrap gap-2">
             {files.map((f, i) => (
@@ -401,28 +428,17 @@ export default function App() {
           </div>
         )}
 
-        {/* Audio clip indicator (pre-send) + transcribe hint */}
+        {/* Audio indicator / Transcribing */}
         {audioBlob && !awaitingResponse && (
           <div className="mt-2 text-xs text-white/90">
-            {isTranscribing && <span className="ml-2 opacity-80">⏳ Transcribing…</span>}
+            {isTranscribing && <span className="ml-2 opacity-80">Transcribing…</span>}
           </div>
         )}
 
-        {/* ===== Footer composer ===== */}
+        {/* Composer */}
         <form onSubmit={handleSubmit} className="sticky bottom-0 left-0 right-0 py-3">
           <div className={`w-full rounded-2xl bg-sky-300/10 backdrop-blur-2xl border border-white/10 p-2 flex items-center gap-2 ${awaitingResponse ? 'opacity-60' : ''}`}>
 
-            {/* File button (optional) */}
-            {/* <button
-              type="button"
-              onClick={handleChooseFiles}
-              className="rounded-xl hover:bg-white/10 transition p-2"
-              title="Attach files"
-              aria-label="Attach files"
-              disabled={awaitingResponse || isTranscribing}
-            >
-              <Paperclip className="w-5 h-5 text-white" />
-            </button> */}
             <input
               ref={fileInputRef}
               type="file"
@@ -432,7 +448,6 @@ export default function App() {
               disabled={awaitingResponse || isTranscribing}
             />
 
-            {/* Text input */}
             <input
               type="text"
               value={text}
@@ -447,7 +462,6 @@ export default function App() {
               disabled={awaitingResponse || isTranscribing}
             />
 
-            {/* Mic toggle */}
             <button
               type="button"
               onClick={toggleRecording}
@@ -464,7 +478,6 @@ export default function App() {
               )}
             </button>
 
-            {/* Send (disabled until STT is done) */}
             <button
               type="submit"
               className="px-3 py-2 rounded-xl bg-white/15 hover:bg-white/25 transition flex items-center gap-1 disabled:opacity-60"
@@ -472,7 +485,7 @@ export default function App() {
               aria-label="Send message"
               disabled={
                 awaitingResponse ||
-                isTranscribing ||           // <-- keep disabled while STT runs
+                isTranscribing ||           // disabled during STT
                 (!text && files.length === 0 && !audioBlob)
               }
             >
