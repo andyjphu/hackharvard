@@ -6,12 +6,24 @@ __pycache__/action.cpython-313.pyc
 __pycache__/agent_core.cpython-313.pyc
 __pycache__/perception.cpython-313.pyc
 __pycache__/reasoning.cpython-313.pyc
-.gitignore
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.env
+
 node_modules
 dist
 dist-ssr
 *.local
 dist-electron
+
+# Editor directories and files
 .vscode/*
 !.vscode/extensions.json
 .idea
@@ -21,4 +33,3 @@ dist-electron
 *.njsproj
 *.sln
 *.sw?
-.vite

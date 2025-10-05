@@ -1,0 +1,139 @@
+@import "tailwindcss";
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@100;200;300;400;500;600;700;800;900&display=swap");
+
+:root {
+  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  width: 300px;
+  height: 350px;
+
+  color-scheme: light dark;
+  color: rgba(255, 255, 255, 0.87);
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+
+  color: #646cff;
+  text-decoration: inherit;
+}
+a:hover {
+  color: #535bf2;
+}
+
+.window-controls {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+}
+
+.minimize-btn,
+.close-btn {
+  width: 30px;
+  height: 30px;
+  margin-left: 10px;
+  border: none;
+  border-radius: 16px;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.minimize-btn {
+  background-color: #f0f0f0;
+  color: #333;
+}
+
+.close-btn {
+  background-color: #ff5f57;
+  color: white;
+}
+
+.minimize-btn:hover {
+  background-color: #e0e0e0;
+}
+
+.close-btn:hover {
+  background-color: #ff3b30;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: Inter, sans-serif;
+  background: url('https://via.placeholder.com/1920x1080') no-repeat center center fixed;
+  background-size: cover;
+}
+
+.messages_list {
+  scrollbar-width: none; /* For Firefox */
+  -ms-overflow-style: none; /* For Internet Explorer and Edge */
+
+}
+
+.messages_list::-webkit-scrollbar {
+  display: none; /* For Chrome, Safari, and Opera */
+}
+
+.glass-container {
+  width: 300px;
+  height: 350px;
+
+  /* Darker film + subtle gradient for readability on busy wallpapers */
+  background:
+    linear-gradient(145deg, rgba(18, 18, 23, 0.68), rgba(24, 24, 28, 0.56));
+  
+  /* Stronger glass effect */
+  backdrop-filter: blur(32px) saturate(160%) contrast(1.1) brightness(0.95);
+  -webkit-backdrop-filter: blur(32px) saturate(160%) contrast(1.1) brightness(0.95);
+
+  border-radius: 16px;
+
+  /* Crisper edge: soft outer + inner highlight */
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.20),
+    0 8px 28px rgba(0, 0, 0, 0.35),
+    0 2px 8px rgba(0, 0, 0, 0.25);
+
+  display: flex;
+  /* Optional: subtle inner padding feel */
+  /* padding: 6px; */
+}
+
+/* Fallback for browsers without backdrop support */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass-container {
+    background: rgba(18, 18, 23, 0.92); /* solid dark for readability */
+    /* Keep borders/shadows so it still looks elevated */
+  }
+}
+
+
+
+h1 {
+  font-size: 3.2em;
+  line-height: 1.1;
+}
+
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color: #213547;
+    background-color: #ffffff;
+  }
+  a:hover {
+    color: #747bff;
+  }
+  button {
+    background-color: #f9f9f9;
+  }
+}
