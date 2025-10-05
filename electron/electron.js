@@ -37,7 +37,7 @@ function createWindow() {
 
   ipcMain.handle('stt/transcribe', async (_evt, { bytes, mime }) => {
     if (!process.env.ELEVENLABS_API_KEY) {
-        throw new Error('ELEVENLABS_API_KEY missing');
+      throw new Error('ELEVENLABS_API_KEY missing');
     }
 
     // Recreate a Blob from bytes coming from the renderer
@@ -52,14 +52,14 @@ function createWindow() {
     form.append('file', blob, 'input.webm');
 
     const res = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
-        method: 'POST',
-        headers: { 'xi-api-key': process.env.ELEVENLABS_API_KEY },
-        body: form
+      method: 'POST',
+      headers: { 'xi-api-key': process.env.ELEVENLABS_API_KEY },
+      body: form
     });
 
     if (!res.ok) {
-        const txt = await res.text().catch(() => '');
-        throw new Error(`STT failed: ${res.status} ${res.statusText} ${txt}`);
+      const txt = await res.text().catch(() => '');
+      throw new Error(`STT failed: ${res.status} ${res.statusText} ${txt}`);
     }
     const json = await res.json();
     // API returns a structured object; "text" holds the transcript
@@ -84,24 +84,44 @@ function createWindow() {
   py.start();
 
   // Stream all Python events to renderer so you can show steps
-  py.on('event', (msg) => { if (!win?.isDestroyed()) win.webContents.send('agent-event', msg); });
-  py.on('stderr', (line) => console.error('[PY STDERR]', line));
-  py.on('exit',   ({code, signal}) => console.log('[PY EXIT]', code, signal));
+  py.on('event', (msg) => {
+    console.log('[PY EVENT]', msg);
+    if (!win?.isDestroyed()) win.webContents.send('agent-event', msg);
+  });
+  py.on('stdout', (line) => {
+    console.log('[PY STDOUT]', line);
+    if (!win?.isDestroyed()) win.webContents.send('agent-stdout', line);
+  });
+  py.on('stderr', (line) => {
+    console.error('[PY STDERR]', line);
+    if (!win?.isDestroyed()) win.webContents.send('agent-stderr', line);
+  });
+  py.on('exit', ({ code, signal }) => {
+    console.log('[PY EXIT]', { code, signal });
+    if (!win?.isDestroyed()) win.webContents.send('agent-exit', { code, signal });
+  });
 
   // ========== 🧠 Run agent with a user goal (NEW) ==========
   ipcMain.handle('agent/run', async (_evt, { goal, target_app = null, max_iterations = 3 }) => {
-    const result = await py.runGoal({ goal, target_app, max_iterations });
-    return result; // renderer await window.ipcrenderer.invoke('agent/run', ...)
+    try {
+      console.log(`🚀 Starting agent with goal: "${goal}", target_app: "${target_app}"`);
+      const result = await py.runGoal({ goal, target_app, max_iterations });
+      console.log('✅ Agent completed:', result);
+      return result; // renderer await window.ipcrenderer.invoke('agent/run', ...)
+    } catch (error) {
+      console.error('❌ Agent error:', error);
+      throw error;
+    }
   });
 
   // ========== Optional debugger helpers (NEW) ==========
   ipcMain.handle('debug/selftest', async () => py.selftest());
-  ipcMain.handle('debug/ping',     async () => ({ id: py.ping() }));
-  ipcMain.handle('debug/echo',     async (_e, data) => ({ id: py.echo(data), data }));
+  ipcMain.handle('debug/ping', async () => ({ id: py.ping() }));
+  ipcMain.handle('debug/echo', async (_e, data) => ({ id: py.echo(data), data }));
 
   // ✅ REMOVE the old user-input handler to avoid confusion/duplicates
   // ipcMain.handle('user-input', ...)  ← delete this block
 }
 
 app.whenReady().then(createWindow);
-app.on('before-quit', () => { try { py?.stop(); } catch {} });
+app.on('before-quit', () => { try { py?.stop(); } catch { } });

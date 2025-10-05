@@ -19,6 +19,9 @@ const validInvoke = new Set([
 
 const validOn = new Set([
   'agent-event',        // stream step-by-step events from Python
+  'agent-stdout',       // stream print statements from Python
+  'agent-stderr',       // stream error messages from Python
+  'agent-exit',         // stream Python process exit events
   // if you still use these elsewhere, keep them; otherwise remove:
   // 'assistant-response',
   // 'assistant-error',
