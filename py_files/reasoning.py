@@ -566,6 +566,10 @@ Respond with JSON:
         - Prioritize clicking on the most relevant video result rather than searching again
         - Only search again if no video results are visible
         
+        MESSAGES app (also known as iMessage):
+        - When inside the messages appm, use the "keystroke" action with target "all" for typing any messages you want to send
+        - You may press enter to ensure that the message is sent 
+        
         AVAILABLE ACTIONS:
         - "click": Click on a UI element (button, link, etc.)
         - "type": Type text into a text field (auto-presses Enter for search completion)
