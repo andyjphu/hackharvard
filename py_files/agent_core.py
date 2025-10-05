@@ -247,6 +247,20 @@ class AgentCore:
             if not plan:
                 print("⚠️  No actions to execute")
                 return {"success": False, "reason": "No actions in plan"}
+            
+            # BLACKLIST: Filter out any VSCode launch actions
+            filtered_plan = []
+            for action in plan:
+                if (action.get("action") == "launch_app" and 
+                    ("visual studio code" in action.get("target", "").lower() or 
+                     "vscode" in action.get("target", "").lower())):
+                    print(f"🚫 BLOCKED: VSCode launch action blocked: {action}")
+                    continue
+                filtered_plan.append(action)
+            
+            if len(filtered_plan) != len(plan):
+                print(f"🚫 Filtered out {len(plan) - len(filtered_plan)} VSCode launch actions")
+                plan = filtered_plan
 
             # Execute actions one at a time for continuous observation
             results = []
@@ -797,7 +811,7 @@ class AgentCore:
             "Calendar": "com.apple.iCal",
             "Finder": "com.apple.finder",
             "Cursor": "com.todesktop.230313mzl4w4u92",
-            "Visual Studio Code": "com.microsoft.VSCode",
+            # "Visual Studio Code": "com.microsoft.VSCode",  # BLACKLISTED
             "Terminal": "com.apple.Terminal",
         }
         return bundle_ids.get(app_name, "")

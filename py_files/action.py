@@ -45,6 +45,16 @@ class ActionEngine:
 
         # VERBOSE: Print full action details
         print(f"      📋 Full action details: {action}")
+        
+        # BLACKLIST: Prevent VSCode launches at the action level
+        if action_type == "launch_app" and ("visual studio code" in target.lower() or "vscode" in target.lower()):
+            return {
+                "success": False,
+                "action": action_type,
+                "target": target,
+                "error": "Visual Studio Code is blacklisted and cannot be launched",
+                "timestamp": time.time(),
+            }
 
         try:
             # Dynamic action execution based on action type
@@ -202,7 +212,7 @@ class ActionEngine:
                     "System Settings",
                     "Calculator",
                     "Cursor",
-                    "Visual Studio Code",
+                    # "Visual Studio Code",  # BLACKLISTED
                 ]
 
                 for app_name in common_apps:
@@ -529,7 +539,7 @@ class ActionEngine:
                     "System Settings",
                     "Calculator",
                     "Cursor",
-                    "Visual Studio Code",
+                    # "Visual Studio Code",  # BLACKLISTED
                 ]
 
                 for app_name in common_apps:
@@ -685,6 +695,12 @@ class ActionEngine:
     def _execute_launch_app(self, app_name: str) -> Dict[str, Any]:
         """Launch and focus on an application"""
         try:
+            # BLACKLIST: Prevent VSCode launches
+            if "visual studio code" in app_name.lower() or "vscode" in app_name.lower():
+                return {
+                    "success": False, 
+                    "error": f"Visual Studio Code is blacklisted and cannot be launched"
+                }
             # Try to get existing app first
             app = atomac.getAppRefByLocalizedName(app_name)
 
@@ -746,7 +762,7 @@ class ActionEngine:
             "Calendar": "com.apple.iCal",
             "Finder": "com.apple.finder",
             "Cursor": "com.todesktop.230313mzl4w4u92",
-            "Visual Studio Code": "com.microsoft.VSCode",
+            # "Visual Studio Code": "com.microsoft.VSCode",  # BLACKLISTED
         }
         return bundle_ids.get(app_name, "")
 
@@ -773,7 +789,7 @@ class ActionEngine:
                 "Google Chrome",
                 "Safari",
                 "Cursor",
-                "Visual Studio Code",
+                # "Visual Studio Code",  # BLACKLISTED
                 "Mail",
                 "Calendar",
                 "Finder",

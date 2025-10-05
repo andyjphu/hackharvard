@@ -180,7 +180,7 @@ class PerceptionEngine:
                         "Google Chrome",
                         "Safari",
                         "Cursor",
-                        "Visual Studio Code",
+                        # "Visual Studio Code",  # BLACKLISTED
                         "Mail",
                         "Calendar",
                         "Finder",
@@ -500,7 +500,7 @@ class PerceptionEngine:
             "Calendar": "com.apple.iCal",
             "Finder": "com.apple.finder",
             "Cursor": "com.todesktop.230313mzl4w4u92",
-            "Visual Studio Code": "com.microsoft.VSCode",
+            # "Visual Studio Code": "com.microsoft.VSCode",  # BLACKLISTED
             "Terminal": "com.apple.Terminal",
         }
         return bundle_ids.get(app_name, "")

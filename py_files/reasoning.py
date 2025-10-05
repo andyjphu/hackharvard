@@ -506,6 +506,7 @@ Respond with JSON:
         - Do NOT use "click" action with target "all" (this will fail)
         - For browser tasks: use "keystroke" with target "all" and text like "open safari" or search queries
         - For terminal tasks: use "keystroke" with target "all" and terminal commands
+        - DO NOT launch applications like Visual Studio Code for simple typing tasks
         
         WHEN UI ELEMENTS ARE AVAILABLE:
         - ALWAYS prefer clicking on existing UI elements over system commands
@@ -554,6 +555,12 @@ Respond with JSON:
         - "select": Select an option from a dropdown
         - "scroll": Scroll in a direction (up, down, left, right)
         - "wait": Wait for a specified duration
+        
+        IMPORTANT RESTRICTIONS:
+        - DO NOT use "launch_app" action for Visual Studio Code or other text editors
+        - For typing tasks, use "keystroke" with target "all" instead of launching apps
+        - NEVER suggest launching Visual Studio Code, VSCode, or any text editor
+        - If you need to type text and no UI elements are available, use "keystroke" with target "all"
         
         Respond with JSON:
         {{
