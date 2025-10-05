@@ -35,48 +35,125 @@ export default function App() {
 
   // Stream Python agent events (status/steps) into chat
   useEffect(() => {
-    const formatEvent = (msg) => {
-      const e = msg?.event;
-      if (!e) return null;
+    function formatCountWord(n) {
+      if (n <= 0 || n == null) return 'nothing';
+      if (n <= 3) return 'a few things';
+      if (n <= 10) return 'several things';
+      return 'many things';
+    }
 
+    // map low-level action names to human words
+    function humanizeAction(action) {
+      const map = {
+        click: 'click',
+        tap: 'tap',
+        type: 'type',
+        open_app: 'open',
+        focus: 'open',
+        press_key: 'press a key',
+        select: 'select',
+        scroll: 'scroll'
+      };
+      return map[action] || action || 'do something';
+    }
 
-      if (e === 'step') {
-        const k = msg.kind;
-        // short, readable one-liners
-        if (k === 'focus.result')      return msg.success ? `🎯 Focused ${msg.app}` : `⚠️ Couldn’t focus ${msg.app}`;
-        if (k === 'plan.start')        return `Planning steps for ${msg.app || 'current app'}…`;
-        if (k === 'plan.created')      return `Plan created (${msg.steps} steps) → end: ${msg.end_state || '—'}`;
-        if (k === 'loop.iteration')    return `Iteration ${msg.n}`;
-        if (k === 'perceive.start')    return `Observing UI…`;
-        if (k === 'perceive.end')      return `${msg.ui} UI | ${msg.visual} visual | ${msg.correlated} matched`;
-        if (k === 'reason.start')      return `Reasoning…`;
-        if (k === 'reason.end')        return `Plan ready (conf ${Number(msg.confidence || 0).toFixed(2)}, actions ${msg.actions || 0})`;
-        if (k === 'action.execute')    return `Step ${msg.index}: ${msg.action || 'action'} ${msg.target ? '→ ' + msg.target : ''}`;
-        if (k === 'action.result')     return msg.success ? `Step ${msg.index} done` : `Step ${msg.index} failed`;
-        if (k === 'action.partial_return') return `🔄 Observing after step ${msg.completed}/${msg.total}…`;
-        if (k === 'goal.achieved')     return `🎉 Goal achieved: ${msg.goal}`;
-        if (k === 'loop.max_iterations') return `⏹️ Stopped at max iterations (${msg.iterations})`;
-        // fallback
-        return `ℹ️ ${k}: ${JSON.stringify(msg)}`;
+    function formatEvent(msg) {
+      // fall back to your existing handling if not a step
+      if (msg?.event !== 'step') {
+        if (msg?.event === 'started') return `Okay — I’ll do: “${msg.goal || 'your task'}”.`;
+        if (msg?.event === 'finished') return `All set! I’m done.`;
+        if (msg?.event === 'error') return `Hmm, something went wrong. I’ll try another way.`;
+        return null;
       }
 
-      // if (e === 'bridge_ready') {
-      //   return `🧩 Python bridge ready (pid ${msg.pid})${msg.has_agent === false ? ' — agent_core not imported' : ''}`;
+      const k = msg.kind;
+
+      // if (!simpleMode) {
+      //   // your original terse mapping (kept if you want a dev mode)
+      //   if (k === 'focus.result')      return msg.success ? `🎯 Focused ${msg.app}` : `⚠️ Couldn’t focus ${msg.app}`;
+      //   if (k === 'plan.start')        return `Planning steps for ${msg.app || 'current app'}…`;
+      //   if (k === 'plan.created')      return `Plan created (${msg.steps} steps) → end: ${msg.end_state || '—'}`;
+      //   if (k === 'loop.iteration')    return `Iteration ${msg.n}`;
+      //   if (k === 'perceive.start')    return `Observing UI…`;
+      //   if (k === 'perceive.end')      return `${msg.ui} UI | ${msg.visual} visual | ${msg.correlated} matched`;
+      //   if (k === 'reason.start')      return `Reasoning…`;
+      //   if (k === 'reason.end')        return `Plan ready (conf ${Number(msg.confidence || 0).toFixed(2)}, actions ${msg.actions || 0})`;
+      //   if (k === 'action.execute')    return `Step ${msg.index}: ${msg.action || 'action'} ${msg.target ? '→ ' + msg.target : ''}`;
+      //   if (k === 'action.result')     return msg.success ? `Step ${msg.index} done` : `Step ${msg.index} failed`;
+      //   if (k === 'action.partial_return') return `🔄 Observing after step ${msg.completed}/${msg.total}…`;
+      //   if (k === 'goal.achieved')     return `🎉 Goal achieved: ${msg.goal}`;
+      //   if (k === 'loop.max_iterations') return `⏹️ Stopped at max iterations (${msg.iterations})`;
+      //   return `ℹ️ ${k}: ${JSON.stringify(msg)}`;
       // }
-      if (e === 'warn') return `${msg.message || 'Warning from agent bridge'}`;
-      if (e === 'started') return `Agent started in achieving "${msg.goal || '(none)'}"${msg.target_app ? ` in target app "${msg.target_app}"` : ''}`;
-      if (e === 'selftest') return `🔬 Self-test\nPlatform: ${msg.platform}\nPython: ${String(msg.python_version).split('\n')[0]}\nGEMINI_API_KEY set: ${String(msg.env?.GEMINI_API_KEY_set)}\nagent_core import: ${String(msg.has_agent)}`;
-      if (e === 'finished') {
-        const r = msg.result || {};
-        // return `🏁 Agent finished\nSuccess: ${String(r.success)}\nIterations: ${r.iterations ?? '—'}\nErrors: ${r.errors ?? '—'}\nProgress: ${typeof r.progress === 'number' ? r.progress.toFixed(2) : '—'}${r.message ? `\n${r.message}` : ''}`;
-        return 'Task successfully completed!'
-      }
-      if (e === 'error') return `${msg.error || 'Unknown agent error'}`;
-      if (e === 'pong') return `pong`;
-      if (e === 'echo') return `echo: ${JSON.stringify(msg.data)}`;
 
-      return `${e}: ${JSON.stringify(msg)}`;
-    };
+      // SIMPLE MODE — friendly, short sentences
+      if (k === 'focus.result') {
+        return msg.success
+          ? `I’ve opened ${msg.app}.`
+          : `I couldn’t open ${msg.app}. I’ll try a different way.`;
+      }
+
+      if (k === 'plan.start') {
+        return `I’m planning the steps.`;
+      }
+
+      if (k === 'plan.created') {
+        const count = msg.steps ?? 0;
+        return count > 0
+          ? `I have a short plan with ${count} step${count > 1 ? 's' : ''}.`
+          : `I’ll take it one step at a time.`;
+      }
+
+      if (k === 'loop.iteration') {
+        return `Working… (round ${msg.n}).`;
+      }
+
+      if (k === 'perceive.start') {
+        return `I’m looking at what’s on the screen.`;
+      }
+
+      if (k === 'perceive.end') {
+        // translate counts into gentle phrases
+        const found = formatCountWord(Number(msg.ui || 0) + Number(msg.visual || 0));
+        return `I can see the screen now — I found ${found}.`;
+      }
+
+      if (k === 'reason.start') {
+        return `I’m deciding the next best step.`;
+      }
+
+      if (k === 'reason.end') {
+        const a = msg.actions ?? 0;
+        if (a <= 0) return `I know what to do next.`;
+        if (a === 1) return `I’ll do the next step now.`;
+        return `I’ve got the next few steps ready.`;
+      }
+
+      if (k === 'action.execute') {
+        const verb = humanizeAction(msg.action);
+        // e.g. “Now I’ll click ‘Settings’.”
+        if (msg.target) return `Now I’ll ${verb} “${msg.target}”.`;
+        return `Now I’ll ${verb}.`;
+      }
+
+      if (k === 'action.result') {
+        return msg.success ? `That worked.` : `That didn’t work — I’ll try another way.`;
+      }
+
+      if (k === 'action.partial_return') {
+        return `Checking how that went…`;
+      }
+
+      if (k === 'goal.achieved') {
+        return `All set — I finished that task.`;
+      }
+
+      if (k === 'loop.max_iterations') {
+        return `I couldn’t finish this time. Want me to keep trying?`;
+      }
+
+      return null;
+    }
 
     const onAgentEvent = (_evt, msg) => {
       const t = formatEvent(msg);
@@ -266,7 +343,7 @@ export default function App() {
                     : 'max-w-[85%] bg-white/10 text-white text-sm px-3 py-2 rounded-2xl rounded-tl-sm ring-1 ring-white/10'
                 }
               >
-                <p className="whitespace-pre-wrap">{m.text}</p>
+                <p className="whitespace-pre-wrap text-left">{m.text}</p>
 
                 {/* Attached files summary */}
                 {m.files?.length > 0 && (
