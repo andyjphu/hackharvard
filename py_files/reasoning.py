@@ -5,31 +5,36 @@ Reasoning Engine - Handles all reasoning, planning, and decision-making
 
 import json
 import os
+import re
 import time
-import google.generativeai as genai
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
-from dotenv import load_dotenv
-from macos_settings_map import (
-    find_settings_panel,
-    get_panel_elements,
-    MACOS_SETTINGS_MAP,
-)
 
-# Load environment variables
+import google.generativeai as genai
+from dotenv import load_dotenv
+
+# Optional macOS settings hints
+try:
+    from macos_settings_map import find_settings_panel, get_panel_elements, MACOS_SETTINGS_MAP
+except Exception:
+    MACOS_SETTINGS_MAP = {}
+    def find_settings_panel(goal: str): return {"panel": None, "confidence": 0.0}
+    def get_panel_elements(panel: str): return {"elements": {}}
+
 load_dotenv()
+
+GEMINI_REASONING_MODEL = os.getenv("GEMINI_REASONING_MODEL", "gemini-2.5-pro")
 
 
 @dataclass
 class ReasoningResult:
     """Result of reasoning process"""
-
     plan: List[Dict[str, Any]]
     confidence: float
     reasoning: str
     alternatives: List[str]
     risks: List[str]
-    next_steps: List[str]
+    next_step: str
 
 
 class ReasoningEngine:
@@ -45,128 +50,100 @@ class ReasoningEngine:
     def __init__(self):
         self.model = None
         self._setup_gemini()
-        self.reasoning_history = []
-        self.long_range_plan = None
-        self.plan_created = False
-        self._last_gemini_request_time = 0.0  # Track last API call for throttling
-        self.settings_map = MACOS_SETTINGS_MAP  # macOS settings mapping
+        self.reasoning_history: List[Dict[str, Any]] = []
+        self.long_range_plan: Optional[Dict[str, Any]] = None
+        self._last_gemini_request_time: float = 0.0  # Throttling
+        self.settings_map = MACOS_SETTINGS_MAP
 
-    def _throttle_gemini_request(self):
-        """Throttle Gemini API requests to avoid 429 rate limits"""
-        current_time = time.time()
-        time_since_last = current_time - self._last_gemini_request_time
+    # -------- Gemini setup/throttle --------
 
-        if time_since_last < 5.0:  # 5 second throttle
-            wait_time = 5.0 - time_since_last
-            print(
-                f"   ⏳ Throttling Gemini request for {wait_time:.1f}s to avoid rate limits..."
-            )
-            time.sleep(wait_time)
-
-        self._last_gemini_request_time = time.time()
-
-    def _setup_gemini(self):
-        """Setup Gemini API for reasoning"""
+    def _setup_gemini(self) -> bool:
         try:
             api_key = os.getenv("GEMINI_API_KEY")
-            if not api_key or api_key == "your_api_key_here":
-                print("   ⚠️  GEMINI_API_KEY not found or invalid")
+            if not api_key:
+                print("   ⚠️  GEMINI_API_KEY not found")
                 return False
-
             genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel("gemini-2.5-pro")
-            print("   ✅ Gemini 2.5 Pro configured for intelligent reasoning")
+            self.model = genai.GenerativeModel(GEMINI_REASONING_MODEL)
+            print(f"   ✅ Gemini configured ({GEMINI_REASONING_MODEL}) for reasoning")
             return True
         except Exception as e:
             print(f"   ❌ Error setting up Gemini: {e}")
             return False
 
-    def create_long_range_plan(
-        self,
-        goal: str,
-        target_app: str,
-        ui_signals: List[Dict[str, Any]],
-        system_state: Any,
-    ) -> Dict[str, Any]:
-        """Create a comprehensive long-range plan for achieving the goal"""
+    def _throttle(self, min_seconds: float = 5.0):
+        now = time.time()
+        delta = now - self._last_gemini_request_time
+        if delta < min_seconds:
+            time.sleep(min_seconds - delta)
+        self._last_gemini_request_time = time.time()
+
+    # -------- Planning --------
+
+    def create_long_range_plan(self, goal: str, target_app: Optional[str], ui_signals: List[Dict[str, Any]], system_state: Any) -> Dict[str, Any]:
         if not self.model:
             return {"error": "Gemini not configured"}
 
+        print("   🎯 Creating long-range plan...")
+
+        settings_info = find_settings_panel(goal)
+        panel_context = ""
+        if settings_info.get("panel"):
+            panel_data = get_panel_elements(settings_info["panel"])
+            panel_context = (
+                f"MACOS SETTINGS CONTEXT:\n"
+                f"- Target Panel: {settings_info['panel']}\n"
+                f"- Confidence: {settings_info.get('confidence', 0.0)}\n"
+                f"- Available Elements: {list(panel_data.get('elements', {}).keys())}\n"
+            )
+
+        prompt = f"""
+You are an AI planning expert. Create a comprehensive, step-by-step plan to achieve the user's goal.
+
+GOAL: {goal}
+TARGET APP: {target_app}
+
+{panel_context}
+
+ENVIRONMENT SNAPSHOT:
+- Available UI Elements: {len(ui_signals)}
+- System State: {self._format_system_state(system_state)}
+
+UI ELEMENTS (IDs are authoritative; do not invent):
+{self._format_ui_elements(ui_signals)}
+
+Respond ONLY with JSON:
+{{
+  "goal": "...",
+  "end_state": "...",
+  "success_criteria": ["..."],
+  "steps": [
+    {{"step": 1, "action": "action_type", "target": "element_id_or_all", "description": "what to do", "expected_outcome": "..."}}
+  ],
+  "obstacles": ["..."],
+  "alternatives": ["..."],
+  "completion_indicators": ["..."]
+}}
+"""
+
         try:
-            print("   🎯 Creating long-range plan...")
-
-            # Build the planning prompt
-            planning_prompt = f"""
-            You are an AI planning expert. Create a comprehensive, step-by-step plan to achieve the user's goal.
-            
-            GOAL: {goal}
-            TARGET APP: {target_app}
-            
-            CURRENT ENVIRONMENT:
-            - Available UI Elements: {len(ui_signals)}
-            - System State: {system_state}
-            
-            AVAILABLE UI ELEMENTS:
-            {self._format_ui_elements(ui_signals)}
-            
-            SYSTEM STATE:
-            {self._format_system_state(system_state)}
-            
-            Create a detailed plan that:
-            1. Breaks down the goal into clear, actionable steps
-            2. Identifies the end state/success criteria
-            3. Considers potential obstacles and alternatives
-            4. Provides a clear sequence of actions
-            5. Defines what "success" looks like
-            
-            Respond with JSON:
-            {{
-                "goal": "The original user goal",
-                "end_state": "Clear description of what success looks like",
-                "success_criteria": ["Specific criteria that indicate goal achievement"],
-                "steps": [
-                    {{"step": 1, "action": "action_type", "description": "what to do", "expected_outcome": "what should happen"}},
-                    {{"step": 2, "action": "action_type", "description": "what to do", "expected_outcome": "what should happen"}},
-                    ...
-                ],
-                "obstacles": ["Potential issues that might arise"],
-                "alternatives": ["Alternative approaches if main plan fails"],
-                "completion_indicators": ["Signs that the goal has been achieved"]
-            }}
-            """
-
-            # Throttle Gemini requests to avoid 429 rate limits
-            self._throttle_gemini_request()
-
-            response = self.model.generate_content(planning_prompt)
-            plan_text = response.text.strip()
-
-            # Parse the JSON response
-            try:
-                import re
-
-                json_match = re.search(r"\{.*\}", plan_text, re.DOTALL)
-                if json_match:
-                    json_str = json_match.group()
-                    plan = json.loads(json_str)
-                    self.long_range_plan = plan
-                    self.plan_created = True
-                    print(
-                        f"   ✅ Long-range plan created with {len(plan.get('steps', []))} steps"
-                    )
-                    return plan
-                else:
-                    return {"error": "Could not parse plan JSON"}
-            except Exception as e:
-                return {"error": f"Plan parsing failed: {e}"}
-
+            self._throttle()
+            resp = self.model.generate_content(prompt)
+            txt = (resp.text or "").strip()
+            m = re.search(r"\{.*\}", txt, flags=re.DOTALL)
+            if not m:
+                return {"error": "Could not parse plan JSON"}
+            plan = json.loads(m.group(0))
+            self.long_range_plan = plan
+            return plan
         except Exception as e:
             return {"error": f"Plan creation failed: {e}"}
 
-    def gather_knowledge(self, goal: str, perception: Dict[str, Any]) -> Dict[str, Any]:
-        """Gather relevant knowledge for the goal"""
-        print("   🧠 Gathering knowledge...")
+    # -------- Knowledge --------
 
+    def gather_knowledge(self, goal: str, perception: Dict[str, Any]) -> Dict[str, Any]:
+        """Gather relevant knowledge for the goal (lightweight heuristics)."""
+        print("   🧠 Gathering knowledge...")
         return {
             "domain_knowledge": self._get_domain_knowledge(goal),
             "best_practices": self._get_best_practices(goal),
@@ -174,774 +151,315 @@ class ReasoningEngine:
             "historical_context": self._get_historical_context(goal),
         }
 
-    def analyze_situation(
-        self,
-        goal: str,
-        perception: Dict[str, Any],
-        knowledge: Dict[str, Any],
-        agent_state: Any,
-    ) -> Dict[str, Any]:
+    @staticmethod
+    def _get_domain_knowledge(goal: str) -> List[str]:
+        gl = goal.lower()
+        items = []
+        if "battery" in gl:
+            items += ["Prefer low-power mode", "Dim display", "Disable radios not in use"]
+        if "privacy" in gl or "secure" in gl:
+            items += ["Prefer system settings over third-party tools", "Review permissions/toggles"]
+        if "search" in gl:
+            items += ["Use address or search bar", "Submit via Enter"]
+        if "calculator" in gl or "math" in gl:
+            items += ["Use on-screen buttons if available", "Fallback to typing numbers"]
+        return items or ["Use accessible UI controls where possible"]
+
+    @staticmethod
+    def _get_best_practices(goal: str) -> List[str]:
+        return [
+            "Use exact accessibility element IDs; do not invent IDs",
+            "Prefer visible, labeled buttons/switches",
+            "If no UI is found, use 'keystroke' with target 'all'",
+            "Pause briefly after actions to allow UI updates",
+        ]
+
+    @staticmethod
+    def _get_system_recommendations(perception: Dict[str, Any]) -> List[str]:
+        recs = []
+        st = perception.get("system_state")
+        if st and getattr(st, "battery_level", 100) < 20:
+            recs.append("Battery low: consider low power mode")
+        return recs
+
+    @staticmethod
+    def _get_historical_context(goal: str) -> List[str]:
+        return []
+
+    # -------- Reasoning --------
+
+    def analyze_situation(self, goal: str, perception: Dict[str, Any], knowledge: Dict[str, Any], agent_state: Any) -> Dict[str, Any]:
         """Analyze the current situation and generate a plan"""
         print("   🎯 Analyzing situation...")
 
-        # Build comprehensive prompt
         prompt = self._build_reasoning_prompt(goal, perception, knowledge, agent_state)
 
-        # VERBOSE: Print the full prompt
         print("\n" + "=" * 80)
         print("📝 FULL PROMPT SENT TO GEMINI:")
         print("=" * 80)
         print(prompt)
         print("=" * 80)
 
-        # Use Gemini for reasoning
-        if self.model:
-            try:
-                # Throttle Gemini requests to avoid 429 rate limits
-                self._throttle_gemini_request()
-
-                response = self.model.generate_content(prompt)
-
-                # VERBOSE: Print the full response
-                print("\n" + "=" * 80)
-                print("🤖 FULL GEMINI RESPONSE:")
-                print("=" * 80)
-                print(response.text)
-                print("=" * 80)
-
-                reasoning_result = self._parse_gemini_response(response.text)
-
-                # VERBOSE: Print parsed result
-                print("\n" + "=" * 80)
-                print("📊 PARSED REASONING RESULT:")
-                print("=" * 80)
-                print(f"Plan: {reasoning_result.get('plan', [])}")
-                print(f"Confidence: {reasoning_result.get('confidence', 0)}")
-                print(f"Reasoning: {reasoning_result.get('reasoning', '')}")
-                print(f"Alternatives: {reasoning_result.get('alternatives', [])}")
-                print(f"Risks: {reasoning_result.get('risks', [])}")
-                print("=" * 80)
-
-                print(
-                    f"   ✅ Gemini reasoning complete: {reasoning_result['confidence']:.2f} confidence"
-                )
-            except Exception as e:
-                print(f"   ❌ Gemini error: {e}")
-                import traceback
-
-                traceback.print_exc()
-                return {"error": str(e), "plan": [], "confidence": 0.0}
-        else:
+        if not self.model:
             print("   ❌ Gemini not available - API key required")
             return {"error": "Gemini API key required", "plan": [], "confidence": 0.0}
 
-        # Store reasoning in history
-        self.reasoning_history.append(reasoning_result)
-
-        return reasoning_result
-
-    def analyze_with_visual(
-        self, goal: str, perception: Dict[str, Any], screenshot_path: str = None
-    ) -> Dict[str, Any]:
-        """
-        Combined visual analysis and reasoning in a single API call.
-
-        This method combines VLM screenshot analysis with reasoning,
-        reducing API calls and improving efficiency.
-        """
-        print("   🎯 Analyzing with visual context...")
-
         try:
-            # Build comprehensive prompt with visual data
-            prompt = self._build_visual_reasoning_prompt(
-                goal, perception, screenshot_path
-            )
+            self._throttle()
+            resp = self.model.generate_content(prompt)
 
-            # VERBOSE: Print the full prompt
             print("\n" + "=" * 80)
-            print("📝 FULL VISUAL REASONING PROMPT SENT TO GEMINI:")
+            print("🤖 FULL GEMINI RESPONSE:")
             print("=" * 80)
-            print(prompt)
+            print(resp.text or "")
             print("=" * 80)
 
-            # Use Gemini for combined analysis
-            if self.model:
-                try:
-                    # Throttle Gemini requests to avoid 429 rate limits
-                    self._throttle_gemini_request()
+            parsed = self._parse_gemini_response(resp.text or "")
 
-                    # Prepare image data if screenshot available
-                    if screenshot_path:
-                        import base64
+            print("\n" + "=" * 80)
+            print("📊 PARSED REASONING RESULT:")
+            print("=" * 80)
+            print(f"Plan: {parsed.get('plan', [])}")
+            print(f"Confidence: {parsed.get('confidence', 0)}")
+            print(f"Reasoning: {parsed.get('reasoning', '')}")
+            print(f"Alternatives: {parsed.get('alternatives', [])}")
+            print(f"Risks: {parsed.get('risks', [])}")
+            print("=" * 80)
 
-                        with open(screenshot_path, "rb") as image_file:
-                            image_data = {
-                                "mime_type": "image/png",
-                                "data": base64.b64encode(image_file.read()).decode(
-                                    "utf-8"
-                                ),
-                            }
-                        response = self.model.generate_content([prompt, image_data])
-                    else:
-                        response = self.model.generate_content(prompt)
-
-                    # VERBOSE: Print the full response
-                    print("\n" + "=" * 80)
-                    print("🤖 FULL GEMINI VISUAL REASONING RESPONSE:")
-                    print("=" * 80)
-                    print(response.text)
-                    print("=" * 80)
-
-                    reasoning_result = self._parse_gemini_response(response.text)
-
-                    # VERBOSE: Print parsed result
-                    print("\n" + "=" * 80)
-                    print("📊 PARSED VISUAL REASONING RESULT:")
-                    print("=" * 80)
-                    print(f"Plan: {reasoning_result.get('plan', [])}")
-                    print(f"Confidence: {reasoning_result.get('confidence', 0)}")
-                    print(f"Reasoning: {reasoning_result.get('reasoning', '')}")
-                    print(f"Alternatives: {reasoning_result.get('alternatives', [])}")
-                    print(f"Risks: {reasoning_result.get('risks', [])}")
-                    print("=" * 80)
-
-                    print(
-                        f"   ✅ Combined visual reasoning complete: {reasoning_result['confidence']:.2f} confidence"
-                    )
-
-                except Exception as e:
-                    print(f"   ❌ Gemini visual reasoning error: {e}")
-                    import traceback
-
-                    traceback.print_exc()
-                    return {"error": str(e), "plan": [], "confidence": 0.0}
-            else:
-                print("   ❌ Gemini not available - API key required")
-                return {
-                    "error": "Gemini API key required",
-                    "plan": [],
-                    "confidence": 0.0,
-                }
-
-            # Store reasoning in history
-            self.reasoning_history.append(reasoning_result)
-            return reasoning_result
+            self.reasoning_history.append(parsed)
+            return parsed
 
         except Exception as e:
-            print(f"❌ Visual reasoning error: {e}")
             return {"error": str(e), "plan": [], "confidence": 0.0}
 
-    def _build_visual_reasoning_prompt(
-        self, goal: str, perception: Dict[str, Any], screenshot_path: str = None
-    ) -> str:
-        """
-        Build comprehensive prompt for combined visual analysis and reasoning.
+    def analyze_with_visual(self, goal: str, perception: Dict[str, Any], screenshot_path: Optional[str] = None) -> Dict[str, Any]:
+        """Combined visual analysis and reasoning in a single API call."""
+        print("   🎯 Analyzing with visual context...")
 
-        This method creates a single prompt that handles both visual analysis
-        and reasoning in one API call, reducing costs and improving efficiency.
-        """
-        ui_signals = perception.get("ui_signals", [])
+        if not self.model:
+            return {"error": "Gemini API key required", "plan": [], "confidence": 0.0}
+
+        prompt = self._build_visual_reasoning_prompt(goal, perception, screenshot_path)
+
+        print("\n" + "=" * 80)
+        print("📝 FULL VISUAL REASONING PROMPT SENT TO GEMINI:")
+        print("=" * 80)
+        print(prompt)
+        print("=" * 80)
+
+        try:
+            self._throttle()
+            if screenshot_path:
+                with open(screenshot_path, "rb") as f:
+                    image_data = {"mime_type": "image/png", "data": f.read()}
+                resp = self.model.generate_content([prompt, image_data])
+            else:
+                resp = self.model.generate_content(prompt)
+
+            print("\n" + "=" * 80)
+            print("🤖 FULL GEMINI VISUAL REASONING RESPONSE:")
+            print("=" * 80)
+            print(resp.text or "")
+            print("=" * 80)
+
+            parsed = self._parse_gemini_response(resp.text or "")
+            self.reasoning_history.append(parsed)
+            return parsed
+
+        except Exception as e:
+            return {"error": str(e), "plan": [], "confidence": 0.0}
+
+    # -------- Prompt builders / formatters --------
+
+    def _build_visual_reasoning_prompt(self, goal: str, perception: Dict[str, Any], screenshot_path: Optional[str]) -> str:
+        ui = perception.get("ui_signals", [])
         system_state = perception.get("system_state")
-        visual_analysis = perception.get("visual_analysis")
+        visual = perception.get("visual_analysis")
         correlations = perception.get("correlations")
 
-        # Get settings panel information for the goal
         settings_info = find_settings_panel(goal)
         panel_context = ""
         if settings_info.get("panel"):
             panel_data = get_panel_elements(settings_info["panel"])
-            panel_context = f"""
-MACOS SETTINGS CONTEXT:
-- Target Panel: {settings_info['panel']}
-- Confidence: {settings_info['confidence']}
-- Available Elements in this panel: {list(panel_data.get('elements', {}).keys())}
-"""
+            panel_context = (
+                f"MACOS SETTINGS CONTEXT:\n"
+                f"- Target Panel: {settings_info['panel']}\n"
+                f"- Confidence: {settings_info.get('confidence', 0.0)}\n"
+                f"- Available Elements: {list(panel_data.get('elements', {}).keys())}\n"
+            )
 
         return f"""
-You are an autonomous AI agent with advanced visual and accessibility perception capabilities.
+You are an autonomous AI agent with visual + accessibility perception.
 
 GOAL: {goal}
 
 {panel_context}
 
-CURRENT ENVIRONMENT:
-- Accessibility UI Elements: {len(ui_signals)}
-- Visual Elements: {len(visual_analysis.interactive_elements) if visual_analysis else 0}
-- Correlated Elements: {correlations.get('matched_elements', 0) if correlations else 0}
-- System State: {system_state}
-- Screenshot Available: {'Yes' if screenshot_path else 'No'}
+ENVIRONMENT:
+- Accessibility UI Elements: {len(ui)}
+- Visual Elements: {len(visual.interactive_elements) if visual else 0}
+- Correlated Elements: {(correlations or {}).get('matched_elements', 0)}
+- System State: {self._format_system_state(system_state)}
+- Screenshot Available: {"Yes" if screenshot_path else "No"}
 
-ACCESSIBILITY UI ELEMENTS (Use these exact IDs):
-{self._format_ui_elements(ui_signals)}
-
-IMPORTANT: Element IDs are in format "AXButton_123.0_456.0" (role_x_y).
-Do NOT create fictional IDs like "BUTTON_2" or "BUTTON_PLUS".
-Only use the exact IDs provided above.
+ACCESSIBILITY UI ELEMENTS (IDs are authoritative; DO NOT invent new IDs):
+{self._format_ui_elements(ui)}
 
 VISUAL ANALYSIS:
-{self._format_visual_analysis(visual_analysis)}
+{self._format_visual_analysis(visual)}
 
 ELEMENT CORRELATIONS:
 {self._format_correlations(correlations)}
 
-SYSTEM STATE:
-{self._format_system_state(system_state)}
+LONG-RANGE PLAN (if any):
+{self._format_long_range_plan()}
+
+TASK:
+Create a JSON plan to achieve the goal using ONLY the given element IDs. If no UI element is suitable,
+use "keystroke" with target "all". Avoid made-up IDs like "BUTTON_2" or "WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD".
+
+Respond ONLY with JSON:
+{{
+  "plan": [{{"action":"click|type|keystroke|key|select|scroll|wait","target":"element_id|all","text":"...","key":"...","reason":"..."}}],
+  "confidence": 0.0,
+  "reasoning": "...",
+  "alternatives": ["..."],
+  "risks": ["..."],
+  "next_step": "..."
+}}
+"""
+
+    def _build_reasoning_prompt(self, goal: str, perception: Dict[str, Any], knowledge: Dict[str, Any], agent_state: Any) -> str:
+        ui = perception.get("ui_signals", [])
+        system_state = perception.get("system_state")
+        visual = perception.get("visual_analysis")
+        correlations = perception.get("correlations")
+
+        return f"""
+You are an autonomous AI agent with hybrid perception (accessibility + visual).
+Use ELEMENT IDs exactly as provided; do not invent new IDs.
+
+GOAL: {goal}
+
+STATE:
+- UI Elements: {len(ui)}
+- Visual Elements: {len(visual.interactive_elements) if visual else 0}
+- Correlated: {(correlations or {}).get('matched_elements', 0)}
+- System State: {self._format_system_state(system_state)}
+- Progress: {getattr(agent_state, "progress", 0.0):.2f}
+- Errors: {getattr(agent_state, "error_count", 0)}
+
+UI ELEMENTS (IDs are authoritative):
+{self._format_ui_elements(ui)}
+
+VISUAL:
+{self._format_visual_analysis(visual)}
+
+CORRELATIONS:
+{self._format_correlations(correlations)}
+
+KNOWLEDGE:
+{self._format_knowledge(knowledge)}
 
 LONG-RANGE PLAN:
 {self._format_long_range_plan()}
 
-TASK: Analyze the screenshot and current environment to create an action plan.
-
-INSTRUCTIONS:
-1. Examine the screenshot to understand the current visual state
-2. Identify interactive elements visible in the image
-3. Correlate visual elements with accessibility data
-4. Create a plan to achieve the goal using available elements
-5. Provide specific coordinates and element IDs for actions
-
-CRITICAL: You MUST use ONLY the element IDs provided in the "ACCESSIBILITY UI ELEMENTS" section above.
-Do NOT create or invent your own element IDs like "BUTTON_2", "BUTTON_PLUS", etc.
-If no accessibility elements are available, use "keystroke" with target "all" for system commands.
-
-CORRECT EXAMPLES FROM THE ACCESSIBILITY DATA ABOVE:
-- For the "2" button, use: "Two"
-- For the "+" button, use: "Add" 
-- For the "=" button, use: "Equals"
-- For the "0" button, use: "Zero"
-
-WRONG EXAMPLES (DO NOT USE):
-- "BUTTON_2" ❌
-- "BUTTON_PLUS" ❌
-- "BUTTON_EQUAL" ❌
-- "BUTTON_0" ❌
-
-WHEN NO UI ELEMENTS ARE AVAILABLE:
-- Use "keystroke" action with target "all" for system-wide commands
-- Do NOT use "click" action with target "all" (this will fail)
-- Do NOT create fictional element IDs
-
-WHEN UI ELEMENTS ARE AVAILABLE:
-- ALWAYS prefer clicking on existing UI elements over system commands
-- Use exact element IDs from the accessibility data (format: AXButton_123.0_456.0)
-- Do NOT create fictional IDs like "BUTTON_2" or "BUTTON_PLUS"
-
-FOR BLUETOOTH TASKS:
-- Look for toggle switches, not generic buttons
-- Prefer elements with "Bluetooth" in the title or description
-- Avoid generic "Turn Off" buttons unless they're clearly Bluetooth-specific
-- Look for toggle controls (AXCheckBox, AXSlider) over buttons
-
-AVAILABLE ACTIONS:
-- "click": Click on a UI element (button, link, etc.)
-- "type": Type text into a text field
-- "keystroke": Type text and automatically press Enter
-- "key": Press a keyboard key (enter, space, tab, etc.)
-- "select": Select an option from a dropdown
-- "scroll": Scroll in a direction (up, down, left, right)
-- "wait": Wait for a specified duration
-
-Respond with JSON:
+Respond ONLY with JSON:
 {{
-    "plan": [
-        {{"action": "action_type", "target": "element_id", "text": "text_to_type", "key": "key_name", "reason": "why this action"}}
-    ],
-    "confidence": 0.0-1.0,
-    "reasoning": "explanation of your approach",
-    "alternatives": ["other approaches if needed"],
-    "risks": ["potential issues and mitigations"],
-    "next_step": "what to do after this action completes"
+  "plan": [{{"action":"click|type|keystroke|key|select|scroll|wait","target":"element_id|all","text":"...","key":"...","reason":"..."}}],
+  "confidence": 0.0,
+  "reasoning": "...",
+  "alternatives": ["..."],
+  "risks": ["..."],
+  "next_step": "..."
 }}
 """
 
-    def _build_reasoning_prompt(
-        self,
-        goal: str,
-        perception: Dict[str, Any],
-        knowledge: Dict[str, Any],
-        agent_state: Any,
-    ) -> str:
-        """
-        Build comprehensive reasoning prompt with hybrid accessibility + visual data.
+    # -------- Format helpers --------
 
-        This method creates a detailed prompt that includes both traditional accessibility
-        API data and visual language model analysis for enhanced decision-making.
+    @staticmethod
+    def _format_ui_elements(ui: List[Dict[str, Any]]) -> str:
+        if not ui:
+            return "- (none)"
+        lines = []
+        for e in ui[:80]:  # avoid massive dumps
+            lines.append(f"- {e.get('id')} | {e.get('type')} | {e.get('title')}")
+        if len(ui) > 80:
+            lines.append(f"... (+{len(ui)-80} more)")
+        return "\n".join(lines)
 
-        Args:
-            goal: User's goal to achieve
-            perception: Hybrid perception data including accessibility and visual elements
-            knowledge: Domain knowledge and best practices
-            agent_state: Current agent state information
+    @staticmethod
+    def _format_visual_analysis(visual) -> str:
+        if not visual:
+            return "- (none)"
+        desc = visual.screen_description or "(no description)"
+        count = len(visual.interactive_elements)
+        return f"- {desc}\n- Interactive elements: {count}"
 
-        Returns:
-            Formatted prompt string for Gemini reasoning
-        """
+    @staticmethod
+    def _format_correlations(corr) -> str:
+        if not corr:
+            return "- (none)"
+        return f"- Matched elements: {corr.get('matched_elements', 0)}"
 
-        ui_signals = perception.get("ui_signals", [])
-        system_state = perception.get("system_state", {})
-        visual_analysis = perception.get("visual_analysis")
-        correlations = perception.get("correlations")
-
-        return f"""
-        You are an autonomous AI agent with hybrid perception capabilities that can interact 
-        with any application or system to achieve goals using both accessibility APIs and 
-        visual analysis.
-        
-        GOAL: {goal}
-        
-        CURRENT ENVIRONMENT:
-        - Accessibility UI Elements: {len(ui_signals)}
-        - Visual Elements: {len(visual_analysis.interactive_elements) if visual_analysis else 0}
-        - Correlated Elements: {correlations.get('matched_elements', 0) if correlations else 0}
-        - System State: {system_state}
-        - Progress: {agent_state.progress:.2f}
-        - Errors: {agent_state.error_count}
-        
-        ACCESSIBILITY UI ELEMENTS (Use these exact IDs):
-        {self._format_ui_elements(ui_signals)}
-        
-        VISUAL ANALYSIS:
-        {self._format_visual_analysis(visual_analysis)}
-        
-        ELEMENT CORRELATIONS:
-        {self._format_correlations(correlations)}
-        
-        SYSTEM STATE:
-        {self._format_system_state(system_state)}
-        
-        CONTEXT:
-        {self._format_knowledge(knowledge)}
-        
-        LONG-RANGE PLAN:
-        {self._format_long_range_plan()}
-        
-        Analyze the situation and create a plan to achieve the goal. Use the exact element IDs provided.
-        Consider what actions are needed, which elements to use, potential risks, and alternatives.
-        
-        CRITICAL: You MUST use ONLY the element IDs provided in the "AVAILABLE UI ELEMENTS" section above.
-        Do NOT create or invent your own element IDs like "WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD".
-        Look for elements with IDs like "AXTextField_802.5_43.0" or "AXButton_123.0_456.0".
-        
-        WHEN NO UI ELEMENTS ARE AVAILABLE:
-        - Use "keystroke" action with target "all" for system-wide commands
-        - Do NOT use "click" action with target "all" (this will fail)
-        - For browser tasks: use "keystroke" with target "all" and text like "open safari" or search queries
-        - For terminal tasks: use "keystroke" with target "all" and terminal commands
-        
-        WHEN UI ELEMENTS ARE AVAILABLE:
-        - ALWAYS prefer clicking on existing UI elements over system commands
-        - If search results are visible, click on the most relevant result
-        - For video requests: click on YouTube video links to navigate to the actual video page
-        - Only use system commands when no relevant UI elements are available
-        
-        IMPORTANT: Plan only ONE action at a time. The agent will observe the results and plan the next action.
-        Focus on the most immediate next step to make progress toward the goal.
-        
-        NAVIGATION PREFERENCES:
-        - Prefer "keystroke" action for search fields and text inputs (automatically presses Enter)
-        - Use "type" action for general text input that doesn't need Enter
-        - Use "click" action for buttons, links, and interactive elements
-        - Keystroke navigation is often more reliable than clicking search buttons
-        
-        TERMINAL APPLICATIONS (iTerm2, Terminal):
-        - Use "keystroke" action with target "all" for terminal commands
-        - Do NOT try to find specific UI elements in terminals
-        - Terminal commands should be sent as system-wide keystrokes
-        - Examples: "echo hello world", "ls", "cd /path", etc.
-        
-        SYSTEM SETTINGS SEARCH:
-        - Use "keystroke" action with target "all" for search queries
-        - Do NOT try to click individual settings buttons
-        - Let System Settings handle the search results automatically
-        - Examples: "battery saver", "low power mode", "display settings", etc.
-        
-        BROWSER TASKS (Safari, Chrome, Firefox):
-        - Use "keystroke" action with target "all" for search queries
-        - Do NOT try to click individual browser buttons when no elements are available
-        - Let the browser handle the search results automatically
-        - Examples: "ishowspeed", "youtube ishowspeed", "search for ishowspeed", etc.
-        
-        VIDEO GOALS (showing videos, watching videos):
-        - If YouTube video links are visible in search results, click on them to navigate to the actual video page
-        - Look for elements with titles containing "YouTube", "Play on Google", or video duration
-        - Prioritize clicking on the most relevant video result rather than searching again
-        - Only search again if no video results are visible
-        
-        AVAILABLE ACTIONS:
-        - "click": Click on a UI element (button, link, etc.)
-        - "type": Type text into a text field (auto-presses Enter for search completion)
-        - "keystroke": Type text and automatically press Enter (preferred for search fields)
-        - "key": Press a keyboard key (enter, space, tab, etc.)
-        - "select": Select an option from a dropdown
-        - "scroll": Scroll in a direction (up, down, left, right)
-        - "wait": Wait for a specified duration
-        
-        Respond with JSON:
-        {{
-            "plan": [
-                {{"action": "action_type", "target": "element_id", "text": "text_to_type", "key": "key_name", "reason": "why this action"}}
-            ],
-            "confidence": 0.0-1.0,
-            "reasoning": "explanation of your approach",
-            "alternatives": ["other approaches if needed"],
-            "risks": ["potential issues and mitigations"],
-            "next_step": "what to do after this action completes"
-        }}
-        """
-
-    def _format_ui_elements(self, elements: List[Dict[str, Any]]) -> str:
-        """Format UI elements for reasoning prompt"""
-        if not elements:
-            return "No UI elements available"
-
-        # Prioritize important elements (text fields, search elements, buttons with meaningful titles)
-        important_elements = []
-        other_elements = []
-
-        for element in elements:
-            element_type = element.get("type", "")
-            title = element.get("title", "").lower()
-            description = element.get("description", "").lower()
-
-            # Prioritize text fields, search elements, and meaningful buttons
-            if (
-                element_type == "AXTextField"
-                or "search" in title
-                or "search" in description
-                or "input" in title
-                or "input" in description
-                or (element_type == "AXButton" and title and title != "button")
-            ):
-                important_elements.append(element)
-            else:
-                other_elements.append(element)
-
-        # Combine important elements first, then others - NO LIMIT!
-        prioritized_elements = important_elements + other_elements
-        elements_to_show = prioritized_elements  # Show ALL elements
-
-        formatted = []
-        for element in elements_to_show:
-            formatted.append(
-                f"""
-            - ID: {element.get('id', 'Unknown')}
-              Type: {element.get('type', 'Unknown')}
-              Position: {element.get('position', (0, 0))}
-              Current Value: {element.get('current_value', '')}
-              Available Options: {element.get('available_options', [])}
-              Actions: {element.get('actions', [])}
-              Title: {element.get('title', '')}
-            """
-            )
-        return "\n".join(formatted)
+    @staticmethod
+    def _format_system_state(state) -> str:
+        if not state:
+            return "(unknown)"
+        return f"battery={state.battery_level}%, power={state.power_source}, net={state.network_status}, mem={state.memory_usage:.1f}%, cpu={state.cpu_usage:.1f}%"
 
     def _format_long_range_plan(self) -> str:
-        """Format the long-range plan for the prompt"""
         if not self.long_range_plan:
-            return "No long-range plan available yet."
-
-        plan = self.long_range_plan
-        formatted = []
-
-        formatted.append(f"ORIGINAL GOAL: {plan.get('goal', 'Unknown')}")
-        formatted.append(f"END STATE: {plan.get('end_state', 'Not defined')}")
-        formatted.append("")
-
-        # Success criteria
-        criteria = plan.get("success_criteria", [])
-        if criteria:
-            formatted.append("SUCCESS CRITERIA:")
-            for criterion in criteria:
-                formatted.append(f"- {criterion}")
-            formatted.append("")
-
-        # Steps
-        steps = plan.get("steps", [])
-        if steps:
-            formatted.append("PLANNED STEPS:")
-            for step in steps:
-                step_num = step.get("step", "?")
-                action = step.get("action", "unknown")
-                description = step.get("description", "No description")
-                expected = step.get("expected_outcome", "No expected outcome")
-                formatted.append(f"{step_num}. {action.upper()}: {description}")
-                formatted.append(f"   Expected: {expected}")
-            formatted.append("")
-
-        # Obstacles
-        obstacles = plan.get("obstacles", [])
-        if obstacles:
-            formatted.append("POTENTIAL OBSTACLES:")
-            for obstacle in obstacles:
-                formatted.append(f"- {obstacle}")
-            formatted.append("")
-
-        # Completion indicators
-        indicators = plan.get("completion_indicators", [])
-        if indicators:
-            formatted.append("COMPLETION INDICATORS:")
-            for indicator in indicators:
-                formatted.append(f"- {indicator}")
-
-        return "\n".join(formatted)
-
-    def _format_visual_analysis(self, visual_analysis) -> str:
-        """
-        Format visual analysis data for the reasoning prompt.
-
-        Args:
-            visual_analysis: VisualAnalysis object or None
-
-        Returns:
-            Formatted string describing visual elements and analysis
-        """
-        if not visual_analysis:
-            return "No visual analysis available"
-
-        formatted = []
-        formatted.append(f"Screen Description: {visual_analysis.screen_description}")
-        formatted.append("")
-
-        if visual_analysis.interactive_elements:
-            formatted.append(
-                f"Visual Interactive Elements ({len(visual_analysis.interactive_elements)}):"
-            )
-            for i, element in enumerate(visual_analysis.interactive_elements, 1):
-                formatted.append(f"  {i}. {element.type.upper()}")
-                formatted.append(f"     Position: {element.position}")
-                formatted.append(f"     Text: {element.text}")
-                formatted.append(f"     Purpose: {element.purpose}")
-                formatted.append(f"     Characteristics: {element.characteristics}")
-                if element.task_relevant:
-                    formatted.append(f"     🎯 TASK-RELEVANT")
-                if element.coordinates:
-                    formatted.append(f"     Coordinates: {element.coordinates}")
-                formatted.append("")
-        else:
-            formatted.append("No visual interactive elements identified")
-
-        if visual_analysis.safety_warnings:
-            formatted.append("Visual Safety Warnings:")
-            for warning in visual_analysis.safety_warnings:
-                formatted.append(f"  ⚠️  {warning}")
-            formatted.append("")
-
-        if visual_analysis.alternative_methods:
-            formatted.append("Alternative Methods:")
-            for method in visual_analysis.alternative_methods:
-                formatted.append(f"  💡 {method}")
-
-        return "\n".join(formatted)
-
-    def _format_correlations(self, correlations) -> str:
-        """
-        Format element correlations between accessibility and visual data.
-
-        Args:
-            correlations: Correlation data or None
-
-        Returns:
-            Formatted string describing element correlations
-        """
-        if not correlations:
-            return "No element correlations available"
-
-        formatted = []
-        formatted.append(
-            f"Total Accessibility Elements: {correlations.get('total_ui_signals', 0)}"
-        )
-        formatted.append(
-            f"Total Visual Elements: {correlations.get('total_visual_elements', 0)}"
-        )
-        formatted.append(f"Matched Elements: {correlations.get('matched_elements', 0)}")
-        formatted.append("")
-
-        correlation_list = correlations.get("correlations", [])
-        if correlation_list:
-            formatted.append("Element Correlations:")
-            for i, correlation in enumerate(
-                correlation_list[:10], 1
-            ):  # Limit to 10 for readability
-                ui_signal = correlation.get("ui_signal", {})
-                visual_element = correlation.get("visual_element")
-                score = correlation.get("correlation_score", 0)
-
-                formatted.append(
-                    f"  {i}. Accessibility ID: {correlation.get('accessibility_id', 'Unknown')}"
-                )
-                formatted.append(
-                    f"     Visual Element: {visual_element.type if visual_element else 'Unknown'}"
-                )
-                formatted.append(f"     Correlation Score: {score}")
-                formatted.append(f"     UI Title: {ui_signal.get('title', 'No title')}")
-                formatted.append(
-                    f"     Visual Text: {visual_element.text if visual_element else 'No text'}"
-                )
-                formatted.append("")
-        else:
-            formatted.append("No element correlations found")
-
-        return "\n".join(formatted)
-
-    def _format_system_state(self, state: Any) -> str:
-        """Format system state for reasoning prompt"""
-        if not state:
-            return "System state unknown"
-
-        # Handle both dict and SystemState object
-        if hasattr(state, "battery_level"):
-            return f"""
-        Battery Level: {state.battery_level}%
-        Power Source: {state.power_source}
-        Network: {state.network_status}
-        Memory Usage: {state.memory_usage}%
-        CPU Usage: {state.cpu_usage}%
-        """
-        else:
-            return f"""
-        Battery Level: {state.get('battery_level', 0)}%
-        Power Source: {state.get('power_source', 'unknown')}
-        Network: {state.get('network_status', 'unknown')}
-        Memory Usage: {state.get('memory_usage', 0)}%
-        CPU Usage: {state.get('cpu_usage', 0)}%
-        """
-
-    def _format_knowledge(self, knowledge: Dict[str, Any]) -> str:
-        """Format knowledge for reasoning prompt"""
-        formatted = []
-        for key, value in knowledge.items():
-            if isinstance(value, list):
-                formatted.append(f"{key}: {', '.join(value)}")
-            else:
-                formatted.append(f"{key}: {value}")
-        return "\n".join(formatted)
-
-    def _parse_gemini_response(self, response_text: str) -> Dict[str, Any]:
-        """Parse Gemini response into structured reasoning result"""
+            return "- (none)"
         try:
-            # Try to extract JSON from response
-            import re
+            steps = self.long_range_plan.get("steps", [])
+            return f"- Steps: {len(steps)} | End-state: {self.long_range_plan.get('end_state', '(n/a)')}"
+        except Exception:
+            return "- (invalid)"
 
-            json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
-            if json_match:
-                json_str = json_match.group()
-                return json.loads(json_str)
-            else:
-                return self._parse_text_response(response_text)
-        except Exception as e:
-            print(f"   ⚠️  Error parsing Gemini response: {e}")
-            return self._parse_text_response(response_text)
+    @staticmethod
+    def _format_knowledge(knowledge: Dict[str, Any]) -> str:
+        try:
+            return json.dumps(knowledge, indent=2)[:1200]
+        except Exception:
+            return "(unavailable)"
 
-    def _parse_text_response(self, response_text: str) -> Dict[str, Any]:
-        """Parse text response when JSON parsing fails"""
-        return {
-            "plan": [
-                {
-                    "action": "analyze",
-                    "target": "system",
-                    "reason": "Gemini provided text response",
+    # -------- Parse --------
+
+    @staticmethod
+    def _parse_gemini_response(text: str) -> Dict[str, Any]:
+        """
+        Parse a JSON response out of the model text. If parsing fails,
+        return a conservative fallback.
+        """
+        try:
+            m = re.search(r"\{.*\}", text, flags=re.DOTALL)
+            if m:
+                obj = json.loads(m.group(0))
+                # Normalize fields
+                plan = obj.get("plan", [])
+                confidence = float(obj.get("confidence", 0.0))
+                reasoning = obj.get("reasoning", "")
+                alts = obj.get("alternatives", [])
+                risks = obj.get("risks", [])
+                next_step = obj.get("next_step", "")
+                return {
+                    "plan": plan if isinstance(plan, list) else [],
+                    "confidence": confidence,
+                    "reasoning": reasoning,
+                    "alternatives": alts if isinstance(alts, list) else [],
+                    "risks": risks if isinstance(risks, list) else [],
+                    "next_step": next_step,
                 }
-            ],
-            "confidence": 0.7,
-            "reasoning": (
-                response_text[:200] + "..."
-                if len(response_text) > 200
-                else response_text
-            ),
-            "alternatives": ["Manual configuration"],
-            "risks": ["Requires human verification"],
-            "next_steps": ["Verify current state", "Plan next actions"],
-        }
+        except Exception:
+            pass
 
-    def _get_domain_knowledge(self, goal: str) -> Dict[str, Any]:
-        """Get domain-specific knowledge"""
-        knowledge_base = {
-            "battery_optimization": {
-                "low_power_mode": "Reduces background activity and performance",
-                "screen_brightness": "Major battery drain factor",
-                "background_apps": "Can significantly impact battery life",
-            },
-            "security_settings": {
-                "filevault": "Encrypts entire disk for security",
-                "firewall": "Blocks unauthorized network access",
-                "touch_id": "Biometric authentication method",
-            },
-            "accessibility": {
-                "voiceover": "Screen reader for visual impairment",
-                "zoom": "Magnification for better visibility",
-                "high_contrast": "Improved text readability",
-            },
-        }
-
-        # Find relevant knowledge
-        relevant_knowledge = {}
-        for domain, knowledge in knowledge_base.items():
-            if any(keyword in goal.lower() for keyword in domain.split("_")):
-                relevant_knowledge.update(knowledge)
-
-        return relevant_knowledge
-
-    def _get_best_practices(self, goal: str) -> List[str]:
-        """Get best practices for the goal"""
-        practices = {
-            "battery": [
-                "Enable Low Power Mode when battery is low",
-                "Reduce screen brightness to save power",
-                "Close unnecessary background applications",
-                "Use 'Only on Battery' for Low Power Mode",
-            ],
-            "security": [
-                "Enable FileVault for disk encryption",
-                "Use strong, unique passwords",
-                "Enable two-factor authentication",
-                "Keep system and apps updated",
-            ],
-            "accessibility": [
-                "Test accessibility features with actual users",
-                "Provide multiple input methods",
-                "Ensure sufficient contrast ratios",
-                "Offer customization options",
-            ],
-        }
-
-        # Find relevant practices
-        relevant_practices = []
-        for category, practice_list in practices.items():
-            if category in goal.lower():
-                relevant_practices.extend(practice_list)
-
-        return relevant_practices
-
-    def _get_system_recommendations(self, perception: Dict[str, Any]) -> List[str]:
-        """Get system-specific recommendations"""
-        recommendations = []
-
-        system_state = perception.get("system_state")
-        constraints = perception.get("constraints", [])
-
-        if "low_battery" in constraints:
-            recommendations.append("Consider enabling Low Power Mode")
-
-        if (
-            system_state
-            and hasattr(system_state, "battery_level")
-            and system_state.battery_level < 30
-        ):
-            recommendations.append("Battery is low - optimize power settings")
-
-        if "high_memory_usage" in constraints:
-            recommendations.append("Close unnecessary applications")
-
-        return recommendations
-
-    def _get_historical_context(self, goal: str) -> List[str]:
-        """Get historical context from previous reasoning"""
-        # Simple implementation - in a real system this would be more sophisticated
-        return [f"Previous reasoning for {goal}"]
-
-    def get_reasoning_summary(self) -> Dict[str, Any]:
-        """Get a summary of reasoning capabilities"""
+        # Fallback
         return {
-            "reasoning_history_size": len(self.reasoning_history),
-            "gemini_available": self.model is not None,
-            "fallback_mode": self.model is None,
+            "plan": [],
+            "confidence": 0.0,
+            "reasoning": "",
+            "alternatives": [],
+            "risks": [],
+            "next_step": "",
         }

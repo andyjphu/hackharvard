@@ -3,21 +3,18 @@
 Memory System - Handles storage and retrieval of agent experiences
 """
 
-from typing import Dict, List, Any, Optional
-import time
+from typing import Dict, List, Any
+
 
 class MemorySystem:
     """Handles storage and retrieval of agent memories"""
-    
+
     def __init__(self):
-        self.perceptions = []
-        self.reasonings = []
-        self.actions = []
-    
-    def store_perception(self, ui_signals: List[Dict], system_state: Dict, 
-                        context: Dict, visual_analysis: Any, 
-                        correlations: Dict, timestamp: float) -> None:
-        """Store perception data in memory"""
+        self.perceptions: List[Dict[str, Any]] = []
+        self.reasonings: List[Dict[str, Any]] = []
+        self.actions: List[Dict[str, Any]] = []
+
+    def store_perception(self, ui_signals, system_state, context, visual_analysis, correlations, timestamp) -> None:
         self.perceptions.append({
             "ui_signals": ui_signals,
             "system_state": system_state,
@@ -26,11 +23,9 @@ class MemorySystem:
             "correlations": correlations,
             "timestamp": timestamp
         })
-    
+
     def store_reasoning(self, reasoning_result: Dict[str, Any]) -> None:
-        """Store reasoning result in memory"""
         self.reasonings.append(reasoning_result)
-    
+
     def store_actions(self, action_results: List[Dict[str, Any]]) -> None:
-        """Store action results in memory"""
         self.actions.extend(action_results)
