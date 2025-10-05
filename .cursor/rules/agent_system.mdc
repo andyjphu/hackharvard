@@ -1,0 +1,89 @@
+---
+description: USE WHEN building multi-file agent systems with macOS accessibility APIs and Gemini
+globs: **/*agent*.py,**/*perception*.py,**/*reasoning*.py,**/*action*.py,**/*memory*.py
+alwaysApply: true
+---
+
+When active, enforce:
+
+## CORE ARCHITECTURE
+
+- Use modular design: agent_core.py, perception.py, reasoning.py, action.py, memory.py
+- Implement perceive-reason-act loop in agent_core.py
+- Store agent state with dataclasses and track progress/errors
+- Use timeouts and error limits to prevent infinite loops
+
+## PERCEPTION ENGINE (perception.py)
+
+- Use atomacos for UI scanning: getAppRefByLocalizedName(), getFrontmostApp()
+- Use psutil for system monitoring: sensors_battery(), virtual_memory(), cpu_percent()
+- Generate position-based element IDs: "AXButton_533.0_310.0" format
+- Scan interactive roles: AXButton, AXPopUpButton, AXCheckBox, AXTextField, etc.
+- Limit elements per scan (50 max) to prevent performance issues
+- Store elements with: id, type, position, size, title, enabled, focused
+
+## REASONING ENGINE (reasoning.py)
+
+- Use Gemini 2.0 Flash: GenerativeModel("gemini-2.0-flash-exp")
+- CRITICAL: Include exact element IDs from perception in prompts
+- Use "USE THESE EXACT IDs" instruction in prompts
+- Parse JSON responses with regex: re.search(r'\{.\*\}', response.text, re.DOTALL)
+- Include system state, constraints, and knowledge in prompts
+- Generate confidence scores and alternative plans
+- Handle API errors gracefully with fallbacks
+
+## ACTION ENGINE (action.py)
+
+- CRITICAL: Use position-based element finding with 10-pixel tolerance
+- Parse element IDs: split("\_") to get role, x, y coordinates
+- Find elements by position: abs(pos.x - x) < 10 and abs(pos.y - y) < 10
+- Support actions: click, type, select, scroll, wait, key
+- Use element.AXPress(), element.AXSetFocused(), element.AXSetValue()
+- Validate actions before execution
+- Handle errors with retry logic
+
+## MEMORY SYSTEM (memory.py)
+
+- Use deque for memory storage with maxlen limits
+- Store memory types: perception, reasoning, actions, episodes
+- Calculate importance scores based on success rates and confidence
+- Implement relevance scoring for memory retrieval
+- Export/import memories as JSON
+- Track learning confidence based on memory size
+
+## CRITICAL FAILURE POINTS TO AVOID
+
+- DON'T use atomac.getAppRefs() (doesn't exist)
+- DON'T assume elements have AXIdentifier attributes
+- DON'T let Gemini generate its own element IDs
+- DON'T skip position-based element matching
+- DON'T forget to parse JSON from Gemini text responses
+
+## DEPENDENCIES
+
+- atomacos (macOS accessibility)
+- psutil (system monitoring)
+- google-generativeai (Gemini API)
+- python-dotenv (environment variables)
+
+## ENVIRONMENT SETUP
+
+- GEMINI_API_KEY in .env file (REQUIRED)
+- Accessibility permissions for terminal/IDE
+- macOS system with accessibility APIs enabled
+
+## TESTING PATTERNS
+
+- Test perception: verify UI element discovery
+- Test reasoning: verify Gemini integration and JSON parsing
+- Test actions: verify element finding and execution
+- Test memory: verify storage and retrieval
+- Test full loop: perceive-reason-act cycle
+
+## ERROR HANDLING
+
+- Graceful degradation on perception errors
+- Retry logic for failed actions
+- Comprehensive error reporting
+- Safe operation with system constraints
+- Timeout protection for long-running operations
