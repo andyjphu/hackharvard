@@ -28,19 +28,6 @@ export default function App() {
   const audioChunksRef = useRef([]);
   const responseTimeoutRef = useRef(null);
 
-  // Periodic screenshot (kept from your code)
-  useEffect(() => {
-    const interval = setInterval(async () => {
-      try {
-        const img = await window.ipcrenderer.invoke('capture-screenshot');
-        setImage(img);
-      } catch (e) {
-        // ignore screenshot errors in dev
-      }
-    }, 1000);
-    return () => clearInterval(interval);
-  }, []);
-
   // Auto-scroll to bottom on updates
   useEffect(() => {
     const el = listRef.current;
@@ -95,7 +82,7 @@ export default function App() {
         ...prev,
         { id: genId(), role: 'assistant', text: '⏳ Still working… you can type again if needed.' }
       ]);
-    }, 45000);
+    }, 300000);
   };
   const unlockComposer = () => {
     clearTimeout(responseTimeoutRef.current);
@@ -172,19 +159,9 @@ export default function App() {
 
     try {
       // ★ CHANGED: call your Python-backed agent
-      const res = await window.ipcrenderer.invoke('agent/run', {
-        goal: text,            // ← send the user's input as the goal
-        target_app: null,      // or "Safari", etc., if you want to force
-        max_iterations: 3,     // keep small for quick tests
-      });
-
-      // Optional: show a short summary immediately (you’ll also see streamed “finished”)
-      const replyText =
-        typeof res === 'string'
-          ? res
-          : `✅ Result\nSuccess: ${String(res?.success)}\nIterations: ${res?.iterations ?? '—'}\nErrors: ${res?.errors ?? '—'}\nProgress: ${typeof res?.progress === 'number' ? res.progress.toFixed(2) : '—'}${res?.message ? `\n${res.message}` : ''}`;
-
-      setMessages(prev => [...prev, { id: genId(), role: 'assistant', text: replyText }]);
+        await window.ipcrenderer.invoke('agent/run', {
+          goal: text, target_app: null, max_iterations: 3,
+        });
     } catch (e) {
       setMessages(prev => [
         ...prev,
