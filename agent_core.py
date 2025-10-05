@@ -272,20 +272,24 @@ class AgentCore:
 
                 # After each action, return control to main loop for observation
                 if i < len(plan) - 1:  # Not the last action
-                    print(f"   🔄 Returning to main loop for observation after action {i+1}")
+                    print(
+                        f"   🔄 Returning to main loop for observation after action {i+1}"
+                    )
                     return {
-                        "success": True, 
+                        "success": True,
                         "partial": True,
                         "completed_actions": i + 1,
                         "total_actions": len(plan),
-                        "results": results
+                        "results": results,
                     }
 
             # Store action results in memory
             self.memory.store_actions(results)
 
             success_count = sum(1 for r in results if r.get("success", False))
-            print(f"✅ All actions completed: {success_count}/{len(results)} successful")
+            print(
+                f"✅ All actions completed: {success_count}/{len(results)} successful"
+            )
 
             return {
                 "success": success_count > 0,
@@ -402,18 +406,26 @@ class AgentCore:
                 print(f"🔍 OBSERVING: Checking state after action...")
                 post_action_perception = self.perceive(target_app, goal)
                 if post_action_perception and not post_action_perception.get("error"):
-                    print(f"   📊 Post-action state: {len(post_action_perception.get('ui_signals', []))} elements")
-                    
+                    print(
+                        f"   📊 Post-action state: {len(post_action_perception.get('ui_signals', []))} elements"
+                    )
+
                     # Generate new reasoning based on updated state
                     print(f"🧠 REASONING: Analyzing updated state...")
-                    updated_reasoning = self.reason_with_visual(goal, post_action_perception)
+                    updated_reasoning = self.reason_with_visual(
+                        goal, post_action_perception
+                    )
                     if not updated_reasoning.get("error"):
-                        print(f"   ✅ Updated reasoning: {updated_reasoning.get('confidence', 0):.2f} confidence")
+                        print(
+                            f"   ✅ Updated reasoning: {updated_reasoning.get('confidence', 0):.2f} confidence"
+                        )
                         # Update perception data for goal checking
                         perception_data = post_action_perception
                         reasoning_result = updated_reasoning
                     else:
-                        print(f"   ⚠️  Updated reasoning failed: {updated_reasoning.get('error')}")
+                        print(
+                            f"   ⚠️  Updated reasoning failed: {updated_reasoning.get('error')}"
+                        )
 
                 # Only check goal achievement if action succeeded
                 goal_achieved = self._is_goal_achieved(
@@ -467,16 +479,19 @@ class AgentCore:
                 "message": f"Unexpected error: {e}",
             }
 
+        # If we reach here, we hit max iterations without achieving the goal
         print(f"\n🏁 AGENT FINISHED")
         print(f"   Iterations: {iterations}")
         print(f"   Errors: {self.state.error_count}")
         print(f"   Final Progress: {self.state.progress:.2f}")
+        print(f"   ⚠️  Max iterations reached without achieving goal")
 
         return {
             "iterations": iterations,
             "errors": self.state.error_count,
             "progress": self.state.progress,
-            "success": self.state.error_count < self.max_errors,
+            "success": False,  # Goal was NOT achieved if we hit max iterations
+            "message": "Max iterations reached without achieving goal",
         }
 
     def _choose_target_app(self, goal: str) -> str:
@@ -929,11 +944,82 @@ class AgentCore:
 
                 # Check if any completion indicators are present in current state
                 ui_signals = perception_data.get("ui_signals", [])
+                system_state = perception_data.get("system_state")
+
                 for indicator in completion_indicators:
                     indicator_lower = indicator.lower()
+
+                    # Check system state indicators (more reliable)
+                    if system_state:
+                        # Check if indicator mentions a system state attribute
+                        system_attrs = [
+                            "network_status",
+                            "battery_level",
+                            "power_source",
+                            "memory_usage",
+                            "cpu_usage",
+                        ]
+                        for attr in system_attrs:
+                            if attr in indicator_lower:
+                                current_value = getattr(system_state, attr, "unknown")
+                                # Check if the indicator matches the current
+                                # system state
+                                # Only return True if the indicator describes the CURRENT state, not the desired state
+                                # Convert to string first, then lowercase (handles numbers and strings)
+                                try:
+                                    current_state_str = str(current_value).lower()
+                                except AttributeError:
+                                    # If it's a number or other type without .lower(), just convert to string
+                                    current_state_str = str(current_value)
+
+                                # For network_status, check if indicator describes the DESIRED end state
+                                if attr == "network_status":
+                                    # Indicators often describe changes like "changes from X to Y"
+                                    # We need to check if current state matches the END state (Y), not the start state (X)
+
+                                    # Parse "changes from X to Y" or "changes to Y" patterns
+                                    if (
+                                        "changes" in indicator_lower
+                                        or "change" in indicator_lower
+                                    ):
+                                        # Look for the target state after "to"
+                                        if " to " in indicator_lower:
+                                            parts = indicator_lower.split(" to ")
+                                            if len(parts) >= 2:
+                                                target_state = (
+                                                    parts[-1].strip().strip("'\".,")
+                                                )
+                                                # Check if current state matches the target state
+                                                if (
+                                                    target_state in current_state_str
+                                                    or current_state_str in target_state
+                                                ):
+                                                    print(
+                                                        f"   ✅ Found completion indicator: {indicator} (system state: {attr}={current_value})"
+                                                    )
+                                                    return True
+                                    else:
+                                        # For non-change indicators, use exact matching
+                                        if current_state_str in indicator_lower:
+                                            print(
+                                                f"   ✅ Found completion indicator: {indicator} (system state: {attr}={current_value})"
+                                            )
+                                            return True
+                                else:
+                                    # For other attributes, use exact matching
+                                    if current_state_str in indicator_lower:
+                                        print(
+                                            f"   ✅ Found completion indicator: {indicator} (system state: {attr}={current_value})"
+                                        )
+                                        return True
+
+                    # Check UI element indicators with state verification
                     for signal in ui_signals:
                         title = signal.get("title", "").lower()
+                        current_value = signal.get("current_value", "").lower()
                         description = signal.get("description", "").lower()
+
+                        # Check if indicator matches element title/description
                         if (
                             indicator_lower in title
                             or indicator_lower in description
@@ -941,8 +1027,36 @@ class AgentCore:
                                 keyword in title for keyword in indicator_lower.split()
                             )
                         ):
-                            print(f"   ✅ Found completion indicator: {indicator}")
-                            return True
+                            # For toggles/switches, verify the actual state
+                            if (
+                                "toggle" in indicator_lower
+                                or "switch" in indicator_lower
+                                or "off" in indicator_lower
+                                or "on" in indicator_lower
+                            ):
+                                # Verify the state matches the indicator
+                                if "off" in indicator_lower and current_value in [
+                                    "off",
+                                    "disabled",
+                                    "false",
+                                ]:
+                                    print(
+                                        f"   ✅ Found completion indicator: {indicator} (state: {current_value})"
+                                    )
+                                    return True
+                                elif "on" in indicator_lower and current_value in [
+                                    "on",
+                                    "enabled",
+                                    "true",
+                                ]:
+                                    print(
+                                        f"   ✅ Found completion indicator: {indicator} (state: {current_value})"
+                                    )
+                                    return True
+                            else:
+                                # For non-state indicators, use text matching
+                                print(f"   ✅ Found completion indicator: {indicator}")
+                                return True
 
                 # Check success criteria based on confidence and context
                 confidence = reasoning_result.get("confidence", 0)

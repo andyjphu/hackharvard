@@ -143,11 +143,14 @@ class ActionEngine:
 
             # Try multiple click methods
             try:
-                # Method 1: Standard AXPress
-                element.AXPress()
-                return {"success": True, "result": f"Clicked {target}"}
+                # Method 1: Standard AXPress (check if method exists first)
+                if hasattr(element, "AXPress"):
+                    element.AXPress()
+                    return {"success": True, "result": f"Clicked {target}"}
+                else:
+                    raise AttributeError("AXPress method not available")
 
-            except AttributeError:
+            except (AttributeError, Exception):
                 # Try alternative click methods
                 if hasattr(element, "AXPerformAction"):
                     element.AXPerformAction("AXPress")
@@ -262,7 +265,28 @@ class ActionEngine:
             # Click the element to focus it
             try:
                 print(f"      🎯 Clicking element to focus it")
-                element.AXPress()  # Click to focus
+
+                # Try different methods to interact with the element
+                if hasattr(element, "AXPress"):
+                    element.AXPress()  # Click to focus
+                elif hasattr(element, "AXSetFocused"):
+                    element.AXSetFocused(True)  # Set focus directly
+                elif hasattr(element, "AXClick"):
+                    element.AXClick()  # Alternative click method
+                else:
+                    # Fallback: use coordinate-based clicking
+                    pos = getattr(element, "AXPosition", None)
+                    size = getattr(element, "AXSize", None)
+                    if pos and size:
+                        center_x = pos.x + size.width // 2
+                        center_y = pos.y + size.height // 2
+                        print(
+                            f"      🎯 Using coordinate click at ({center_x}, {center_y})"
+                        )
+                        subprocess.run(["cliclick", f"c:{center_x},{center_y}"])
+                    else:
+                        raise Exception("No suitable interaction method found")
+
                 time.sleep(1.0)  # Wait longer for focus
             except Exception as e:
                 print(f"      ⚠️  Could not click element: {e}")
@@ -326,9 +350,20 @@ class ActionEngine:
 
             # Focus the element first
             try:
-                element.AXSetFocused()
-            except:
-                element.AXPress()
+                if hasattr(element, "AXSetFocused"):
+                    element.AXSetFocused()
+                elif hasattr(element, "AXPress"):
+                    element.AXPress()
+                else:
+                    # Fallback to coordinate click
+                    pos = getattr(element, "AXPosition", None)
+                    size = getattr(element, "AXSize", None)
+                    if pos and size:
+                        center_x = pos.x + size.width // 2
+                        center_y = pos.y + size.height // 2
+                        subprocess.run(["cliclick", f"c:{center_x},{center_y}"])
+            except Exception as e:
+                print(f"      ⚠️  Could not focus element: {e}")
             time.sleep(0.2)
 
             # Press Enter key using system events
@@ -352,13 +387,31 @@ class ActionEngine:
 
             # For popup buttons, click to open dropdown first
             if element.AXRole == "AXPopUpButton":
-                element.AXPress()
+                if hasattr(element, "AXPress"):
+                    element.AXPress()
+                else:
+                    # Fallback to coordinate click
+                    pos = getattr(element, "AXPosition", None)
+                    size = getattr(element, "AXSize", None)
+                    if pos and size:
+                        center_x = pos.x + size.width // 2
+                        center_y = pos.y + size.height // 2
+                        subprocess.run(["cliclick", f"c:{center_x},{center_y}"])
                 time.sleep(1.0)  # Wait for dropdown to appear
 
                 # Find and click the option
                 option_element = self._find_option(element, option)
                 if option_element:
-                    option_element.AXPress()
+                    if hasattr(option_element, "AXPress"):
+                        option_element.AXPress()
+                    else:
+                        # Fallback to coordinate click
+                        pos = getattr(option_element, "AXPosition", None)
+                        size = getattr(option_element, "AXSize", None)
+                        if pos and size:
+                            center_x = pos.x + size.width // 2
+                            center_y = pos.y + size.height // 2
+                            subprocess.run(["cliclick", f"c:{center_x},{center_y}"])
                     time.sleep(0.5)
                     return {
                         "success": True,
