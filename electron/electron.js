@@ -12,11 +12,50 @@ const __dirname = path.dirname(__filename);
 let win;
 let py;
 
+const ELEVEN_API_KEY = process.env.ELEVENLABS_API_KEY || process.env.ELEVEN_API_KEY || '';
+// Rachel’s public voice id from the docs. Replace with your own if you like.
+const DEFAULT_VOICE_ID = process.env.ELEVEN_VOICE_ID || 'EXAVITQu4vr4xnSDxMaL';
+const DEFAULT_MODEL_ID = 'eleven_multilingual_v2'; // good default
+
+async function ttsElevenLabs({ text, voiceId = DEFAULT_VOICE_ID, modelId = DEFAULT_MODEL_ID }) {
+  if (!ELEVEN_API_KEY) throw new Error('Missing ELEVENLABS_API_KEY');
+
+  // Keep messages short-ish (service limit ~5k chars)
+  const safeText = String(text || '').slice(0, 4500);
+
+  const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?optimize_streaming_latency=0&output_format=mp3_44100_64`;
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'xi-api-key': ELEVEN_API_KEY,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+        text: safeText,
+        model_id: modelId,
+        voice_settings: {
+            stability: 0.5,
+            similarity_boost: 0.75
+        }
+        })
+    });
+
+    if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        throw new Error(`ElevenLabs TTS failed (${res.status}): ${errText}`);
+    }
+
+    const ab = await res.arrayBuffer();
+    const base64 = Buffer.from(ab).toString('base64');
+    return { audioBase64: base64, mime: 'audio/mpeg' };
+}
+
 function createWindow() {
   win = new BrowserWindow({
-    width: 400,
+    width: 500,
     height: 500,
-    x: 1150,
+    x: 1050,
     y: 20,
     frame: false,
     transparent: true,
@@ -118,6 +157,10 @@ function createWindow() {
   ipcMain.handle('debug/selftest', async () => py.selftest());
   ipcMain.handle('debug/ping', async () => ({ id: py.ping() }));
   ipcMain.handle('debug/echo', async (_e, data) => ({ id: py.echo(data), data }));
+
+    ipcMain.handle('tts/speak', async (_evt, { text, voiceId, modelId } = {}) => {
+        return ttsElevenLabs({ text, voiceId, modelId });
+    });
 
   // ✅ REMOVE the old user-input handler to avoid confusion/duplicates
   // ipcMain.handle('user-input', ...)  ← delete this block

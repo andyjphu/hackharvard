@@ -34,11 +34,14 @@ class AgentCore:
     Implements the perceive-reason-act loop for autonomous operation
     """
 
-    def __init__(self):
+    def __init__(self, event_cb=None):
         self.perception = PerceptionEngine()
         self.reasoning = ReasoningEngine()
         self.action = ActionEngine()
         self.memory = MemorySystem()
+
+        # Optional callback used by agent_bridge.py to stream step updates to Electron
+        self._event_cb = event_cb
 
         self.state = AgentState(
             goal="",
@@ -53,19 +56,18 @@ class AgentCore:
         self.max_errors = 5
         self.max_iterations = 50
 
+    def _emit(self, kind: str, **data):
+        """Emit a structured step event to the bridge (safe no-op if no callback)."""
+        try:
+            if self._event_cb:
+                self._event_cb({"kind": kind, **data})
+        except Exception:
+            # Never fail the run because of a progress callback
+            pass
+
     def perceive(self, target_app: str = None, goal: str = "") -> Dict[str, Any]:
         """
         Perceive the current environment using hybrid accessibility + visual analysis.
-
-        This method combines traditional accessibility API scanning with visual language model
-        analysis to provide comprehensive environmental understanding.
-
-        Args:
-            target_app: Target application to focus on
-            goal: User goal for context-aware visual analysis
-
-        Returns:
-            Dictionary containing hybrid perception data with both accessibility and visual elements
         """
         print("🔍 PERCEIVING: Gathering hybrid environmental signals...")
 
@@ -133,13 +135,6 @@ class AgentCore:
     ) -> None:
         """
         Handle app launching logic with comprehensive error handling.
-
-        This method manages the complex process of launching applications when no UI elements
-        are initially found, including proper error handling and timing considerations.
-
-        Args:
-            target_app: Application to potentially launch
-            perception_data: Current perception data to update
         """
         try:
             import atomacos as atomac
@@ -212,9 +207,6 @@ class AgentCore:
     ) -> Dict[str, Any]:
         """
         Combined VLM + Reasoning in a single API call.
-
-        This method combines visual analysis and reasoning into one step,
-        reducing API calls and improving efficiency.
         """
         print("   🎯 Combining visual analysis and reasoning...")
 
@@ -251,11 +243,29 @@ class AgentCore:
             # Execute actions one at a time for continuous observation
             results = []
             for i, action in enumerate(plan):
+                # Emit step start
+                self._emit(
+                    "action.execute",
+                    index=i + 1,
+                    total=len(plan),
+                    action=action.get("action"),
+                    target=action.get("target"),
+                    description=action.get("description"),
+                )
+
                 print(f"   Executing action {i+1}/{len(plan)}: {action['action']}")
 
                 try:
                     result = self.action.execute_action(action)
                     results.append(result)
+
+                    # Emit step result
+                    self._emit(
+                        "action.result",
+                        index=i + 1,
+                        success=bool(result.get("success")),
+                        detail=str(result.get("result", ""))[:140],
+                    )
 
                     # Update agent state
                     self.state.last_action = action["action"]
@@ -274,6 +284,9 @@ class AgentCore:
                 if i < len(plan) - 1:  # Not the last action
                     print(
                         f"   🔄 Returning to main loop for observation after action {i+1}"
+                    )
+                    self._emit(
+                        "action.partial_return", completed=i + 1, total=len(plan)
                     )
                     return {
                         "success": True,
@@ -314,6 +327,14 @@ class AgentCore:
         print(f"Target App: {target_app}")
         print("=" * 60)
 
+        iterations = 0
+        max_iter = max_iterations or self.max_iterations
+
+        # Emit loop start (needs max_iter defined first)
+        self._emit(
+            "loop.start", goal=goal, target_app=target_app, max_iterations=max_iter
+        )
+
         # CRITICAL: Focus the target app before starting
         print(f"\n🎯 FOCUSING TARGET APP: {target_app}")
         focus_result = self._focus_target_app(target_app)
@@ -322,10 +343,10 @@ class AgentCore:
         else:
             print(f"✅ Successfully focused {target_app}")
 
-        iterations = 0
-        max_iter = max_iterations or self.max_iterations
+        self._emit("focus.result", app=target_app, success=bool(focus_result))
 
         # Create long-range plan before starting the loop
+        self._emit("plan.start", goal=goal, app=target_app)
         print(f"\n🎯 CREATING LONG-RANGE PLAN")
         print("-" * 40)
 
@@ -357,6 +378,14 @@ class AgentCore:
             print(f"   End State: {plan_result.get('end_state', 'Not defined')}")
             print(f"   Steps: {len(plan_result.get('steps', []))}")
 
+        if "error" not in plan_result:
+            self._emit(
+                "plan.created",
+                steps=len(plan_result.get("steps", [])),
+                goal=plan_result.get("goal"),
+                end_state=plan_result.get("end_state"),
+            )
+
         # Execute the task with continuous perceive-reason-act loop
         print(f"\n🔄 STARTING PERCEIVE-REASON-ACT LOOP")
         print("-" * 40)
@@ -367,27 +396,52 @@ class AgentCore:
                 print(f"\n🔄 ITERATION {iterations}/{max_iter}")
                 print("=" * 50)
 
+                self._emit("loop.iteration", n=iterations, max=max_iter)
+
                 # 1. Perceive (observe current state)
                 print(f"🔍 PERCEIVING: Gathering environmental signals...")
+                self._emit("perceive.start", app=target_app)
                 perception_data = self.perceive(target_app, goal)
                 if "error" in perception_data:
                     print(f"❌ Perception failed: {perception_data['error']}")
                     self.state.error_count += 1
                     continue
 
+                ui_count = len(perception_data.get("ui_signals", []))
+                visual_count = 0
+                if perception_data.get("visual_analysis"):
+                    visual_count = len(
+                        perception_data["visual_analysis"].interactive_elements
+                    )
+                correlated = (perception_data.get("correlations") or {}).get(
+                    "matched_elements", 0
+                )
+                self._emit(
+                    "perceive.end", ui=ui_count, visual=visual_count, correlated=correlated
+                )
+
                 # 2. Combined VLM + Reasoning in single step
                 print(
                     f"🧠 COMBINED VLM + REASONING: Analyzing goal and visual state..."
                 )
+                self._emit("reason.start")
                 reasoning_result = self.reason_with_visual(goal, perception_data)
                 if "error" in reasoning_result:
                     print(f"❌ Reasoning failed: {reasoning_result['error']}")
                     self.state.error_count += 1
                     continue
 
+                actions_planned = len(reasoning_result.get("plan", []))
+                self._emit(
+                    "reason.end",
+                    confidence=reasoning_result.get("confidence", 0.0),
+                    actions=actions_planned,
+                )
+
                 # 3. Act (execute one action)
                 print(f"🎯 ACTING: Executing planned action...")
                 action_result = self.act(reasoning_result)
+
                 if not action_result.get("success", False):
                     print(
                         f"❌ Action failed: {action_result.get('error', 'Unknown error')}"
@@ -433,6 +487,7 @@ class AgentCore:
                 )
                 if goal_achieved:
                     print(f"🎉 GOAL ACHIEVED: {goal}")
+                    self._emit("goal.achieved", goal=goal)
                     return {
                         "success": True,
                         "iterations": iterations,
@@ -447,7 +502,14 @@ class AgentCore:
                     print(
                         f"⚠️  Very low confidence ({confidence:.2f}), stopping to prevent errors"
                     )
-                    return
+                    self._emit("loop.low_confidence", confidence=confidence)
+                    return {
+                        "success": False,
+                        "iterations": iterations,
+                        "errors": self.state.error_count,
+                        "progress": self.state.progress,
+                        "message": f"Stopped early: very low confidence ({confidence:.2f})",
+                    }
                 elif confidence < 0.3:
                     print(f"⚠️  Low confidence ({confidence:.2f}), but continuing...")
 
@@ -485,6 +547,7 @@ class AgentCore:
         print(f"   Errors: {self.state.error_count}")
         print(f"   Final Progress: {self.state.progress:.2f}")
         print(f"   ⚠️  Max iterations reached without achieving goal")
+        self._emit("loop.max_iterations", iterations=iterations, max=max_iter)
 
         return {
             "iterations": iterations,
@@ -524,9 +587,12 @@ class AgentCore:
                             app, "AXIdentifier", None
                         )
                         # BLACKLIST: Filter out VSCode from running apps
-                        if (app_name and app_name not in available_apps and
-                            "visual studio code" not in app_name.lower() and
-                            "vscode" not in app_name.lower()):
+                        if (
+                            app_name
+                            and app_name not in available_apps
+                            and "visual studio code" not in app_name.lower()
+                            and "vscode" not in app_name.lower()
+                        ):
                             available_apps.append(app_name)
                     except:
                         continue
@@ -549,9 +615,11 @@ class AgentCore:
                             if item.endswith(".app"):
                                 app_name = item[:-4]  # Remove .app extension
                                 # BLACKLIST: Filter out VSCode
-                                if (app_name not in available_apps and 
-                                    "visual studio code" not in app_name.lower() and 
-                                    "vscode" not in app_name.lower()):
+                                if (
+                                    app_name not in available_apps
+                                    and "visual studio code" not in app_name.lower()
+                                    and "vscode" not in app_name.lower()
+                                ):
                                     available_apps.append(app_name)
                     except PermissionError:
                         # Skip directories we can't access
@@ -968,51 +1036,38 @@ class AgentCore:
                         for attr in system_attrs:
                             if attr in indicator_lower:
                                 current_value = getattr(system_state, attr, "unknown")
-                                # Check if the indicator matches the current
-                                # system state
-                                # Only return True if the indicator describes the CURRENT state, not the desired state
-                                # Convert to string first, then lowercase (handles numbers and strings)
+                                # Only return True if the indicator describes the CURRENT state
                                 try:
                                     current_state_str = str(current_value).lower()
                                 except AttributeError:
-                                    # If it's a number or other type without .lower(), just convert to string
                                     current_state_str = str(current_value)
 
-                                # For network_status, check if indicator describes the DESIRED end state
                                 if attr == "network_status":
-                                    # Indicators often describe changes like "changes from X to Y"
-                                    # We need to check if current state matches the END state (Y), not the start state (X)
-
-                                    # Parse "changes from X to Y" or "changes to Y" patterns
-                                    if (
-                                        "changes" in indicator_lower
-                                        or "change" in indicator_lower
+                                    if ("changes" in indicator_lower) or (
+                                        "change" in indicator_lower
                                     ):
-                                        # Look for the target state after "to"
                                         if " to " in indicator_lower:
                                             parts = indicator_lower.split(" to ")
                                             if len(parts) >= 2:
                                                 target_state = (
                                                     parts[-1].strip().strip("'\".,")
                                                 )
-                                                # Check if current state matches the target state
                                                 if (
                                                     target_state in current_state_str
-                                                    or current_state_str in target_state
+                                                    or current_state_str
+                                                    in target_state
                                                 ):
                                                     print(
                                                         f"   ✅ Found completion indicator: {indicator} (system state: {attr}={current_value})"
                                                     )
                                                     return True
                                     else:
-                                        # For non-change indicators, use exact matching
                                         if current_state_str in indicator_lower:
                                             print(
                                                 f"   ✅ Found completion indicator: {indicator} (system state: {attr}={current_value})"
                                             )
                                             return True
                                 else:
-                                    # For other attributes, use exact matching
                                     if current_state_str in indicator_lower:
                                         print(
                                             f"   ✅ Found completion indicator: {indicator} (system state: {attr}={current_value})"
@@ -1045,7 +1100,6 @@ class AgentCore:
                                 or "off" in indicator_lower
                                 or "on" in indicator_lower
                             ):
-                                # Verify the state matches the indicator
                                 if "off" in indicator_lower and current_value in [
                                     "off",
                                     "disabled",
@@ -1065,13 +1119,10 @@ class AgentCore:
                                     )
                                     return True
                             else:
-                                # For non-state indicators, use text matching
                                 print(f"   ✅ Found completion indicator: {indicator}")
                                 return True
 
-                # Don't declare success just based on confidence
-                # High confidence means we know what to do, not that we've done it
-                # The goal is only achieved if we find actual completion indicators
+                # No success yet if we only have confidence
 
         # Fallback to original logic if no long-range plan
         goal_lower = goal.lower()
